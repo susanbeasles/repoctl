@@ -135,10 +135,13 @@ func run() throws {
         repoctl policy verify FILE
         repoctl policy status FILE
         Signing default: SEP. No automatic fallback. Seal signs exact JSON bytes.
-        This preview does not apply GitHub rules or promote branches.
+        repoctl repo inspect|plan|apply|verify OWNER/REPO
+        apply requires --accept-locked-bootstrap. GitHub CLI (gh) required.
+        Locked bootstrap disables Actions and all protected-branch writers.
         """)
         return
     }
+    if args.first == "repo" { try repositoryCommand(args); return }
     try require(args.count >= 3 && args[0] == "policy", "Unknown command; use --help")
     let action = args[1], path = account(args[2])
     if action == "verify" {

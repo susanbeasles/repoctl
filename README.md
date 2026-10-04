@@ -225,3 +225,48 @@ verified on the supported macOS version. Do not claim this preview prevents
 all root modification. Test an unauthorized modifying process, an explicitly
 authorized updater, and a signed bundle whose resource is modified. Use a
 copy for destructive tests. Root permissions alone are not the whole boundary.
+
+## Native GitHub bootstrap commands
+
+This version adds a personal `locked-bootstrap` phase using the installed
+GitHub CLI (`gh`) for authentication and API transport. It is an interim runtime
+dependency; the binary does not yet have native GitHub OAuth/Keychain transport.
+
+```sh
+repoctl repo inspect susanbeasles/repoctl
+repoctl repo plan susanbeasles/repoctl
+```
+
+Both commands are read-only. The plan binds the authenticated numeric owner ID
+and confirms the default branch exists. Only a personal repository administered
+by its exact owner is supported in this phase.
+
+The explicit apply command changes remote settings:
+
+```sh
+repoctl repo apply susanbeasles/repoctl --accept-locked-bootstrap
+repoctl repo verify susanbeasles/repoctl
+```
+
+**Apply locks main/default/master against ALL updates, creation and deletion,
+including by you; it also disables Actions.** Do not apply expecting ordinary
+PR merging to work. Configure the promotion App in a later phase before any
+writer is allowed onto protected branches. An administrator can edit rules
+through GitHub if recovery is necessary; this is not administrator-proof.
+
+The phase also requires signed protected commits/linear history/no force pushes,
+allows only owner updates to other branches, restricts tag creation to owner,
+forbids existing-tag updates/deletion without bypass, and enables immutable
+releases. Frozen snapshot/integration namespaces and the promotion protocol
+are not active in this phase. No policy-seal file is consumed by these fixed
+bootstrap commands; do not mistake them for sealed customizable policy apply.
+
+Managed rules use `repoctl/bootstrap-v1/` names. Unrelated and inherited rules
+are preserved. Matching inherited names and duplicates abort before mutation.
+Actions are disabled first; subsequent failure does not automatically remove
+protections. Re-running resumes reconciliation. Verification compares managed
+configuration and checks Actions/immutability; it is not an adversarial test
+of effective platform enforcement. Multi-call GitHub changes are non-atomic.
+
+Native Swift compilation and authenticated API writes must be tested on macOS.
+Do not claim the full promotion preset works from this bootstrap phase alone.
