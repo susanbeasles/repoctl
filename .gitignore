@@ -1,0 +1,8 @@
+/.build/
+/dist/
+__pycache__/
+*.pyc
+/profile*.json
+!/profile.example.json
+/plan.json
+*.seal.json

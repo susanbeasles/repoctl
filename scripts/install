@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+./scripts/build
+app=dist/Repoctl.app
+if [[ -n ${REPOCTL_SIGNING_IDENTITY:-} ]]; then
+  codesign --verify --strict --verbose=2 "$app"
+fi
+# Build as the invoking user; privilege only the installation step.
+sudo mkdir -p /usr/local/libexec/repoctl /usr/local/bin
+sudo ditto "$app" /usr/local/libexec/repoctl/Repoctl.app
+sudo chown -R root:wheel /usr/local/libexec/repoctl
+sudo find /usr/local/libexec/repoctl -type d -exec chmod 755 {} +
+sudo find /usr/local/libexec/repoctl -type f -exec chmod 644 {} +
+sudo chmod 755 /usr/local/libexec/repoctl/Repoctl.app/Contents/MacOS/repoctl
+sudo ln -sfn /usr/local/libexec/repoctl/Repoctl.app/Contents/MacOS/repoctl /usr/local/bin/repoctl
+/usr/local/bin/repoctl --help

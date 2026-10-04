@@ -1,0 +1,362 @@
+{
+  "schema_version": 1,
+  "profile": "personal",
+  "deployment_status": "BLOCKED_PENDING_NATIVE_FF_REVIEW_COMPATIBILITY_TEST",
+  "rulesets": [
+    {
+      "name": "repoctl/v1/blanket-owner",
+      "target": "branch",
+      "enforcement": "active",
+      "bypass_actors": [
+        {
+          "actor_id": 100,
+          "actor_type": "User",
+          "bypass_mode": "always"
+        }
+      ],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "~ALL"
+          ],
+          "exclude": [
+            "~DEFAULT_BRANCH",
+            "refs/heads/main",
+            "refs/heads/master",
+            "refs/heads/pr/**/*",
+            "refs/heads/int/**/*"
+          ]
+        }
+      },
+      "rules": [
+        {
+          "type": "creation"
+        },
+        {
+          "type": "update",
+          "parameters": {
+            "update_allows_fetch_and_merge": false
+          }
+        },
+        {
+          "type": "deletion"
+        }
+      ]
+    },
+    {
+      "name": "repoctl/v1/protected-lifecycle",
+      "target": "branch",
+      "enforcement": "active",
+      "bypass_actors": [],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "~DEFAULT_BRANCH",
+            "refs/heads/main",
+            "refs/heads/master"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "creation"
+        },
+        {
+          "type": "deletion"
+        }
+      ]
+    },
+    {
+      "name": "repoctl/v1/protected-writer",
+      "target": "branch",
+      "enforcement": "active",
+      "bypass_actors": [
+        {
+          "actor_id": 200,
+          "actor_type": "Integration",
+          "bypass_mode": "always"
+        }
+      ],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "~DEFAULT_BRANCH",
+            "refs/heads/main",
+            "refs/heads/master"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "update",
+          "parameters": {
+            "update_allows_fetch_and_merge": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "repoctl/v1/protected-integrity",
+      "target": "branch",
+      "enforcement": "active",
+      "bypass_actors": [],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "~DEFAULT_BRANCH",
+            "refs/heads/main",
+            "refs/heads/master"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "non_fast_forward"
+        },
+        {
+          "type": "required_linear_history"
+        },
+        {
+          "type": "required_signatures"
+        },
+        {
+          "type": "pull_request",
+          "parameters": {
+            "required_approving_review_count": 1,
+            "dismiss_stale_reviews_on_push": true,
+            "require_code_owner_review": true,
+            "require_last_push_approval": true,
+            "required_review_thread_resolution": true,
+            "allowed_merge_methods": [
+              "squash",
+              "rebase"
+            ]
+          }
+        },
+        {
+          "type": "required_status_checks",
+          "parameters": {
+            "strict_required_status_checks_policy": true,
+            "required_status_checks": [
+              {
+                "context": "integration-ci",
+                "integration_id": 300
+              },
+              {
+                "context": "promotion-gate",
+                "integration_id": 300
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "repoctl/v1/snapshot-lifecycle",
+      "target": "branch",
+      "enforcement": "active",
+      "bypass_actors": [
+        {
+          "actor_id": 200,
+          "actor_type": "Integration",
+          "bypass_mode": "always"
+        }
+      ],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "refs/heads/pr/**/*"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "creation"
+        },
+        {
+          "type": "deletion"
+        }
+      ]
+    },
+    {
+      "name": "repoctl/v1/snapshot-frozen",
+      "target": "branch",
+      "enforcement": "active",
+      "bypass_actors": [],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "refs/heads/pr/**/*"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "update",
+          "parameters": {
+            "update_allows_fetch_and_merge": false
+          }
+        },
+        {
+          "type": "non_fast_forward"
+        }
+      ]
+    },
+    {
+      "name": "repoctl/v1/integration-lifecycle",
+      "target": "branch",
+      "enforcement": "active",
+      "bypass_actors": [
+        {
+          "actor_id": 200,
+          "actor_type": "Integration",
+          "bypass_mode": "always"
+        }
+      ],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "refs/heads/int/**/*"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "creation"
+        },
+        {
+          "type": "deletion"
+        }
+      ]
+    },
+    {
+      "name": "repoctl/v1/integration-frozen",
+      "target": "branch",
+      "enforcement": "active",
+      "bypass_actors": [],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "refs/heads/int/**/*"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "update",
+          "parameters": {
+            "update_allows_fetch_and_merge": false
+          }
+        },
+        {
+          "type": "non_fast_forward"
+        }
+      ]
+    },
+    {
+      "name": "repoctl/v1/tag-publisher",
+      "target": "tag",
+      "enforcement": "active",
+      "bypass_actors": [
+        {
+          "actor_id": 200,
+          "actor_type": "Integration",
+          "bypass_mode": "always"
+        }
+      ],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "~ALL"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "creation"
+        }
+      ]
+    },
+    {
+      "name": "repoctl/v1/tag-immutable",
+      "target": "tag",
+      "enforcement": "active",
+      "bypass_actors": [],
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "~ALL"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "update",
+          "parameters": {
+            "update_allows_fetch_and_merge": false
+          }
+        },
+        {
+          "type": "deletion"
+        }
+      ]
+    }
+  ],
+  "actions_policy": {
+    "name": "repoctl/v1/actions",
+    "enforcement": "active",
+    "rules": [
+      {
+        "type": "restrict_actions_actors",
+        "parameters": {
+          "allowed_actors": [
+            {
+              "id": 100,
+              "type": "User"
+            },
+            {
+              "id": 200,
+              "type": "App"
+            }
+          ]
+        }
+      },
+      {
+        "type": "restrict_action_events",
+        "parameters": {
+          "allowed_events": [
+            "push",
+            "workflow_dispatch",
+            "workflow_call"
+          ]
+        }
+      }
+    ]
+  },
+  "codeowners": "* @susanbeasles\n",
+  "repository_settings": {
+    "allow_auto_merge": false,
+    "delete_branch_on_merge": false
+  },
+  "immutable_releases": {
+    "method": "PUT",
+    "endpoint": "immutable-releases"
+  },
+  "notes": [
+    "Seed and verify the signed default branch before enabling lifecycle rules.",
+    "No actor bypasses integrity, frozen-ref updates, or tag mutation rules.",
+    "Working refs are descriptive; blanket-owner protects every unmanaged ref.",
+    "Professional is a separately supplied identity profile; no organization policy is inferred.",
+    "GitHub native approval plus exact-SHA FF must be tested; do not bypass review to make it work.",
+    "An App is an identity, not a signature: configure and verify commit signing separately."
+  ]
+}

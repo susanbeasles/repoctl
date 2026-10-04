@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+[[ $(uname -s) == Darwin ]] || { echo 'macOS required' >&2; exit 1; }
+swift build -c release --arch arm64 --arch x86_64
+bin_dir=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)
+app=dist/Repoctl.app
+mkdir -p "$app/Contents/MacOS"
+cp "$bin_dir/repoctl" "$app/Contents/MacOS/repoctl"
+/usr/libexec/PlistBuddy -c 'Clear dict' "$app/Contents/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Add :CFBundleIdentifier string dev.repoctl.cli' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string repoctl' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundlePackageType string APPL' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleVersion string 1' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleShortVersionString string 0.1.0' "$app/Contents/Info.plist"
+if [[ -n ${REPOCTL_SIGNING_IDENTITY:-} ]]; then
+  # Sign once to discover the actual certificate's designated requirement.
+  codesign --force --options runtime --timestamp --sign "$REPOCTL_SIGNING_IDENTITY" "$app"
+  requirement=$(codesign -d -r- "$app" 2>&1 | sed -n 's/^designated => //p')
+  [[ -n "$requirement" ]] || { echo 'Cannot extract signer requirement' >&2; exit 1; }
+  /usr/libexec/PlistBuddy -c "Add :RepoctlSignerRequirement string $requirement" "$app/Contents/Info.plist"
+  codesign --force --options runtime --timestamp --sign "$REPOCTL_SIGNING_IDENTITY" "$app"
+  codesign --verify --strict --verbose=2 "$app"
+fi
+if [[ -n ${REPOCTL_NOTARY_PROFILE:-} ]]; then
+  [[ -n ${REPOCTL_SIGNING_IDENTITY:-} ]] || { echo 'Notarization requires a Developer ID signature' >&2; exit 1; }
+  ditto -c -k --keepParent "$app" dist/Repoctl.zip
+  xcrun notarytool submit dist/Repoctl.zip --keychain-profile "$REPOCTL_NOTARY_PROFILE" --wait
+  xcrun stapler staple "$app"
+  xcrun stapler validate "$app"
+  spctl --assess --type execute --verbose=2 "$app"
+fi
+# Recreate distribution after stapling so it includes the ticket.
+ditto -c -k --keepParent "$app" dist/Repoctl.zip
+printf 'Built %s\n' "$app"

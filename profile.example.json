@@ -1,0 +1,12 @@
+{
+  "profile": "personal",
+  "owner_login": "susanbeasles",
+  "owner_id": null,
+  "promotion_app_id": null,
+  "ci_app_id": null,
+  "check_contexts": ["integration-ci", "promotion-gate"],
+  "working_refs": ["refs/heads/work/**/*"],
+  "snapshot_refs": ["refs/heads/pr/**/*"],
+  "integration_refs": ["refs/heads/int/**/*"],
+  "protected_refs": ["~DEFAULT_BRANCH", "refs/heads/main", "refs/heads/master"]
+}
