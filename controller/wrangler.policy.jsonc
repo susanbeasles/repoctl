@@ -1,0 +1,1 @@
+{"name":"repoctl-accepted-policy","main":"src/policy/entrypoint.mjs","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"ACCEPTED_POLICY_ENABLED":"false"},"durable_objects":{"bindings":[{"name":"ACCEPTED_POLICY_COORDINATOR","class_name":"AcceptedPolicyCoordinator"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["AcceptedPolicyCoordinator"]}]}

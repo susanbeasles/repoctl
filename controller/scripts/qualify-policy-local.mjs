@@ -1,0 +1,26 @@
+import {Miniflare,convertV4MiniflareOptions} from 'miniflare';import {readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';import {base64} from '../src/ledger.mjs';import {acceptedPolicyService} from '../src/policy/service.mjs';
+const id='a'.repeat(64),sha=c=>c.repeat(40);
+function storage(){let data=new Map(),tail=Promise.resolve();const api={get:async k=>structuredClone(data.get(k)),put:async(k,v)=>data.set(k,structuredClone(v)),delete:async k=>data.delete(k),transaction(fn){const work=tail.then(async()=>{const before=structuredClone(data);try{return await fn(api);}catch(e){data=before;throw e;}});tail=work.catch(()=>{});return work;}};return api;}
+async function signer(){const pair=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);const bytes=await crypto.subtle.exportKey('raw',pair.publicKey);const keyID=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');return {pair,keyID,publicKeyX963:base64(bytes)};}
+async function fixture(){
+ const now=Math.floor(Date.now()/1000),owner=await signer(),validator=await signer();
+ const trust={appID:1,installationID:2,repositoryIDs:[7],acceptedPolicyRevision:1,acceptedPolicyDigest:'b'.repeat(64),targetRef:'refs/heads/main',audiencePrefix:'repoctl',repository:'owner/delivery_control',repositoryID:10,ownerID:20,ref:'refs/heads/main',workflowRef:'owner/delivery_control/.github/workflows/promote.yml@refs/heads/main',workflowSHA:sha('a'),jobWorkflowRef:'owner/delivery_control/.github/workflows/executor.yml@refs/heads/main',jobWorkflowSHA:sha('a'),eventNames:['workflow_dispatch'],actorIDs:[30]};
+ const policy={repositoryID:7,repository:'owner/project',targetRef:'refs/heads/main',revision:1,digest:trust.acceptedPolicyDigest,maxIntentTTL:300,ownerKeys:[{keyID:owner.keyID,publicKeyX963:owner.publicKeyX963}],validatorKeys:[{keyID:validator.keyID,publicKeyX963:validator.publicKeyX963}],executorTrust:trust};
+
+ return {now,owner,validator,policy,trust};
+}
+
+async function setup(){const f=await fixture(),store=storage();let revoked=false;
+const bootstrap={repositoryID:7,repository:'owner/project',ownerKeys:f.policy.ownerKeys,validatorKeys:f.policy.validatorKeys};
+const service=acceptedPolicyService({storage:store,bootstrap,clock:()=>f.now,hardware:{verify:async()=>({keyID:f.owner.keyID,hardwareVerified:!revoked,revoked,proofDigest:'f'.repeat(64),validUntil:f.now+1000})}});
+async function bundle(policy=f.policy,previousDigest='0'.repeat(64)){const body={policy,previousDigest,expiresAt:f.now+200},payload=JSON.stringify(body,null,2)+'\n';async function sign(role,s){const protocol=`repoctl-policy-${role}-v1`;return {protocol,keyID:s.keyID,encoding:'p1363',payload:Buffer.from(payload).toString('base64'),signature:base64(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},s.pair.privateKey,Buffer.from(protocol+'\n'+payload)))};}return {owner:await sign('owner',f.owner),validator:await sign('validator',f.validator)};}
+return {...f,service,store,bundle,revoke:()=>{revoked=true;}};}
+
+const bundlePath=process.argv[2];if(!bundlePath)throw Error('Bundle required');const f=await setup();let revoked=false;
+const mf=new Miniflare(convertV4MiniflareOptions({workers:[{name:'policy',modules:true,script:await readFile(bundlePath,'utf8'),compatibilityDate:'2026-10-04',bindings:{ACCEPTED_POLICY_ENABLED:'true',POLICY_BOOTSTRAP_JSON:JSON.stringify({repositoryID:7,repository:f.policy.repository,ownerKeys:f.policy.ownerKeys,validatorKeys:f.policy.validatorKeys})},durableObjects:{ACCEPTED_POLICY_COORDINATOR:{className:'AcceptedPolicyCoordinator',useSQLite:true}},serviceBindings:{POLICY_HARDWARE:async()=>Response.json({keyID:f.owner.keyID,hardwareVerified:!revoked,revoked,proofDigest:'f'.repeat(64),validUntil:f.now+1000})}},{name:'caller',modules:true,script:'export default {fetch(r,e){return e.POLICY.fetch(r);}}',compatibilityDate:'2026-10-04',serviceBindings:{POLICY:{name:'policy',entrypoint:'AcceptedPolicyService'}}}]}));
+try{const pub=await mf.getWorker('policy'),caller=await mf.getWorker('caller'),call=(path,body)=>caller.fetch('https://internal/v1/policy/'+path,{method:'POST',body:JSON.stringify(body)});
+assert.equal((await pub.fetch('https://local/v1/policy/current',{method:'POST',body:JSON.stringify({repositoryID:7})})).status,404);
+const signed=await f.bundle(),results=await Promise.all([call('admit',signed),call('admit',signed)]);assert.ok(results.every(r=>r.status===200));const first=await results[0].json();assert.equal((await call('current',{repositoryID:7})).status,200);
+const next={...f.policy,revision:2,executorTrust:{...f.trust,acceptedPolicyRevision:2}};assert.equal((await call('admit',await f.bundle(next,first.admissionDigest))).status,200);assert.equal((await (await call('current',{repositoryID:7})).json()).revision,2);assert.equal((await call('admit',signed)).status,403);revoked=true;assert.equal((await call('admit',await f.bundle({...next,revision:3,executorTrust:{...next.executorTrust,acceptedPolicyRevision:3}},'a'.repeat(64)))).status,403);
+console.log('PASS: real workerd policy RPC isolation, concurrent idempotent admission, signed revision chain and revoked owner rejection');}finally{await mf.dispose();}
