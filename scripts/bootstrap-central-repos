@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Publish personal central repository roots; no promotion credentials handled."""
+import argparse, json, re, shutil, subprocess, sys
+from pathlib import Path
+
+
+def run(args, cwd=None, check=True):
+    result = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
+    if check and result.returncode:
+        # Do not print provider response bodies, environment or credential material.
+        raise RuntimeError(f"Command failed: {args[0]} {args[1] if len(args)>1 else ''} (exit {result.returncode}); staged work retained")
+    return result
+
+
+def config(source, name):
+    result = run(['git', 'config', '--local', '--get', name], source, check=False)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--owner', required=True)
+    parser.add_argument('--directory', type=Path, required=True)
+    parser.add_argument('--plan', action='store_true', help='Read-only inventory; no directories or GitHub changes')
+    args = parser.parse_args()
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}', args.owner):
+        raise RuntimeError('Invalid personal GitHub owner')
+    for executable in ['git', 'gh', 'repoctl']:
+        if not shutil.which(executable):
+            raise RuntimeError(f'{executable} is required')
+    source = Path(__file__).resolve().parent.parent
+    owner = run(['gh', 'api', 'user', '--jq', '.login']).stdout.strip()
+    if owner.lower() != args.owner.lower():
+        raise RuntimeError('Selected gh account is not the requested personal owner; switch accounts first')
+    metadata = json.loads(run(['gh', 'api', f'repos/{args.owner}/repoctl']).stdout)
+    if metadata.get('owner', {}).get('type') != 'User' or not metadata.get('permissions', {}).get('admin'):
+        raise RuntimeError('Personal source repository administration required')
+    if run(['git', 'rev-parse', '--show-toplevel'], source).stdout.strip() != str(source):
+        raise RuntimeError('Run this script from the repoctl checkout')
+    if config(source, 'remote.origin.url') not in [f'git@github.com:{args.owner}/repoctl.git', f'https://github.com/{args.owner}/repoctl.git']:
+        raise RuntimeError('Source origin must identify the selected personal repoctl repository')
+    head = run(['git', 'rev-parse', 'HEAD'], source).stdout.strip()
+    remote_tip = run(['git', 'ls-remote', 'origin', 'refs/heads/main'], source).stdout.split()
+    if not remote_tip or remote_tip[0] != head:
+        raise RuntimeError('Publish repoctl HEAD before exporting central repositories')
+    settings = {}
+    for name in ['user.name', 'user.email', 'gpg.format', 'user.signingkey', 'gpg.ssh.program', 'core.sshCommand']:
+        value = config(source, name)
+        if value is not None:
+            settings[name] = value
+    if not all(settings.get(k) for k in ['user.name', 'user.email', 'gpg.format', 'user.signingkey']):
+        raise RuntimeError('Source repository signing identity is incomplete')
+    if not settings.get('core.sshCommand'):
+        raise RuntimeError('Source personal SSH command must be explicitly configured; no global SSH changes made')
+    parent = args.directory.expanduser().resolve()
+    if not parent.is_dir():
+        raise RuntimeError('Destination parent directory must already exist')
+    planned = []
+    for name in ['delivery_control', 'workflow_depot']:
+        # Export committed files only. Local caches/configuration cannot be swept in.
+        if run(['git', 'status', '--porcelain', '--', name], source).stdout.strip():
+            raise RuntimeError(f'{name} has unpublished local changes; commit and publish first')
+        entries = run(['git', 'ls-tree', '-rz', head, '--', name], source).stdout.split('\0')
+        if any(e and not e.startswith('100644 blob ') for e in entries):
+            raise RuntimeError('Export accepts regular non-executable source files only')
+        paths = run(['git', 'ls-tree', '-rz', '--name-only', head, '--', name], source).stdout.split('\0')
+        files = {str(Path(path).relative_to(name)): run(['git', 'show', f'{head}:{path}'], source).stdout for path in paths if path}
+        if not files or any(not p.startswith(('.github/workflows/', 'src/')) for p in files):
+            raise RuntimeError(f'Unexpected or empty committed export for {name}')
+        receipt = {'format': 1, 'source': f'{args.owner}/repoctl', 'sourceCommit': head, 'component': name}
+        files['repoctl-source.json'] = json.dumps(receipt, sort_keys=True, indent=2) + '\n'
+        target = parent / name
+        if target.is_symlink():
+            raise RuntimeError('Destination symlinks are not accepted')
+        if target.exists():
+            if not (target / '.git').is_dir():
+                raise RuntimeError(f'{target} already exists and is not a bootstrap checkout')
+            actual = run(['git', 'rev-parse', '--show-toplevel'], target).stdout.strip()
+            if actual != str(target):
+                raise RuntimeError('Destination is a different checkout/worktree')
+            for path, content in files.items():
+                existing = target / path
+                if existing.is_symlink() or any(parent.is_symlink() for parent in existing.parents if parent != target.parent) or not existing.is_file() or existing.read_text() != content:
+                    raise RuntimeError(f'{name} differs from export; no overwrite or automatic update')
+            extras = set(run(['git', 'ls-files', '--cached', '--others', '--exclude-standard'], target).stdout.splitlines()) - set(files)
+            if extras:
+                raise RuntimeError(f'{name} contains additional files; review manually')
+        response = run(['gh', 'api', f'repos/{args.owner}/{name}'], check=False)
+        exists = response.returncode == 0
+        if not exists and 'HTTP 404' not in response.stderr:
+            raise RuntimeError(f'Cannot establish remote state for {name}; no mutation')
+        if exists:
+            repo = json.loads(response.stdout)
+            if repo.get('owner', {}).get('login', '').lower() != args.owner.lower() or not repo.get('permissions', {}).get('admin') or repo.get('fork') or repo.get('archived') or repo.get('private'):
+                raise RuntimeError('Existing remote is outside the selected public personal profile')
+        remote = f'git@github.com:{args.owner}/{name}.git'
+        if target.exists() and config(target, 'remote.origin.url') not in [None, remote]:
+            raise RuntimeError('Existing origin differs; no replacement')
+        if target.exists() and run(['git', 'symbolic-ref', '--short', 'HEAD'], target).stdout.strip() != 'main':
+            raise RuntimeError('Destination must be on main')
+        if exists:
+            refs = run(['git', '-c', 'core.sshCommand=' + settings['core.sshCommand'], 'ls-remote', remote], source).stdout.splitlines()
+            if refs:
+                local = run(['git', 'rev-parse', '--verify', 'HEAD'], target, check=False) if target.exists() else None
+                branch_refs = [line.split() for line in refs if line.endswith('refs/heads/main')]
+                if not local or local.returncode or len(branch_refs) != 1 or branch_refs[0][0] != local.stdout.strip():
+                    raise RuntimeError(f'{name} already has remote history that does not match this bootstrap checkout')
+        planned.append((name, target, files, exists))
+    for name, target, _, exists in planned:
+        print(f'{name}: {"reuse" if exists else "create public"} {args.owner}/{name}; checkout {target}')
+    if args.plan:
+        print('Plan only. No local or remote mutations.'); return
+    for name, target, files, exists in planned:
+        remote = f'git@github.com:{args.owner}/{name}.git'
+        if not target.exists():
+            target.mkdir(mode=0o755)
+            for path, content in files.items():
+                dest = target / path; dest.parent.mkdir(parents=True, exist_ok=True); dest.write_text(content)
+            run(['git', 'init', '-b', 'main'], target)
+        for key, value in settings.items():
+            run(['git', 'config', '--local', key, value], target)
+        run(['git', 'config', '--local', 'commit.gpgsign', 'true'], target)
+        run(['git', 'config', '--local', 'tag.gpgsign', 'true'], target)
+        current_remote = config(target, 'remote.origin.url')
+        if current_remote and current_remote != remote:
+            raise RuntimeError('Existing origin differs; no replacement')
+        if not current_remote:
+            run(['git', 'remote', 'add', 'origin', remote], target)
+        if not exists:
+            run(['gh', 'repo', 'create', f'{args.owner}/{name}', '--public'])
+        run(['repoctl', 'actions', 'apply', f'{args.owner}/{name}'])
+        run(['git', 'add', '--', *files.keys()], target)
+        if run(['git', 'rev-parse', '--verify', 'HEAD'], target, check=False).returncode:
+            # Interactive PIN/touch feedback is required. Never capture signing UI.
+            subprocess.run(['git', 'commit', '-S', '-m', f'feat: initialize {name} from repoctl'], cwd=target, check=True)
+        elif run(['git', 'diff', '--cached', '--quiet'], target, check=False).returncode:
+            raise RuntimeError('Existing checkout has changed export; manual review required')
+        # No force flag. Existing unrelated remote history must fail, never be replaced.
+        subprocess.run(['git', 'push', '-u', 'origin', 'main'], cwd=target, check=True)
+        print(f'Published {args.owner}/{name}; promotion authority remains unconfigured')
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (RuntimeError, subprocess.CalledProcessError, OSError, ValueError) as error:
+        print(f'bootstrap: {error}', file=sys.stderr)
+        sys.exit(1)
