@@ -1,0 +1,1 @@
+{"name":"repoctl-completion-observer","main":"src/observation/entrypoint.mjs","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"OBSERVATION_ENABLED":"false"}}

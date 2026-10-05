@@ -1,3 +1,4 @@
+import {brokerLeaseView} from '../observation/retained.mjs';
 import {executionRequest} from '../execution/http.mjs';
 import {durableOperations} from './state.mjs';
 import {tokenCustody,cleanupCredential} from './custody.mjs';
@@ -9,6 +10,17 @@ export class BrokerCoordinator {
  // over network I/O. Durable transactional reservations survive object restarts.
  serialize(fn){const work=this.tail.then(fn,fn);this.tail=work.catch(()=>{});return work;}
  async fetch(request){
+  // Only the named private observation entrypoint forwards this path. The public
+  // Worker router has no route for it. Do not enqueue: completion is already
+  // awaiting this read inside the coordinator's execution queue.
+  if(new URL(request.url).pathname==='/v1/private/lease-observation'){
+   try{
+    if(request.method!=='POST')throw Error('Invalid method');
+    const reader=request.body?.getReader();if(!reader)throw Error('Missing input');let n=0;const chunks=[];for(;;){const {done,value}=await reader.read();if(done)break;n+=value.length;if(n>1024){await reader.cancel();throw Error('Oversized input');}chunks.push(value);}const bytes=new Uint8Array(n);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}const body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+    if(Object.keys(body).join()!=='operationID')throw Error('Unexpected fields');
+    return Response.json(await brokerLeaseView(this.ctx.storage,body.operationID),{headers});
+   }catch{return Response.json({error:'lease_observation_denied'},{status:403,headers});}
+  }
   if(!runtimeReady(this.env))return Response.json({error:'broker_not_configured'},{status:503,headers});
   return this.serialize(async()=>{
    try{

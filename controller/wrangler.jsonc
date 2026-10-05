@@ -1,6 +1,6 @@
 {
   "name": "repoctl-controller",
-  "main": "src/worker.mjs",
+  "main": "src/broker-worker.mjs",
   "compatibility_date": "2026-10-04",
   "workers_dev": false,
   "vars": {"BROKER_ENABLED": "false"},

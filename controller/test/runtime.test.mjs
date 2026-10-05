@@ -74,3 +74,12 @@ test('Worker routes connect durable broker, signed OIDC, remote services and ind
  let replay;globalThis.fetch=transport;try{replay=await coordinator.fetch(new Request('https://internal/v1/execution/lease',{method:'POST',body:JSON.stringify({operationID:id,oidcToken:await oidc()})}));}finally{globalThis.fetch=original;}assert.equal(replay.status,403);
  assert.equal(JSON.stringify([...await db.list({prefix:''})]).includes('PRIVATE-RUNTIME-TOKEN'),false);
 });
+
+test('lease observation is private, read-only and does not wait on execution queue',async()=>{
+ const db=storage(),r=record(id);await db.put(`operation:${id}`,r);await db.put(`lease:operation:${id}`,{...lease(id),state:'issued',providerExpiresAt:4600});
+ const coordinator=new BrokerCoordinator({storage:db},{});coordinator.tail=new Promise(()=>{});
+ const request=()=>new Request('https://internal/v1/private/lease-observation',{method:'POST',body:JSON.stringify({operationID:id})});
+ const response=await coordinator.fetch(request());assert.equal(response.status,200);const view=await response.json();assert.equal(view.state,'issued');assert.equal('jti' in view,false);
+ assert.equal((await worker.fetch(request(),{})).status,404);
+ assert.equal((await coordinator.fetch(new Request('https://internal/v1/private/lease-observation',{method:'POST',body:JSON.stringify({operationID:id,token:'expose'})}))).status,403);
+});

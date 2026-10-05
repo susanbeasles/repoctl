@@ -1,3 +1,4 @@
+import {authorityCompletionView} from '../observation/retained.mjs';
 import {authorize,importPolicy} from './authorize.mjs';
 import {canonical,digest} from '../ledger.mjs';
 const headers={'Cache-Control':'no-store','Content-Type':'application/json','X-Content-Type-Options':'nosniff'};
@@ -13,7 +14,7 @@ async function input(request){
 export async function authorityRequest(request,services,now=Math.floor(Date.now()/1000)){
  if(request.method!=='POST')return Response.json({error:'method_not_allowed'},{status:405,headers});
  const path=new URL(request.url).pathname;
- if(!['/v1/authorization/admit','/v1/authorization/load','/v1/authorization/check','/v1/authorization/reconcile'].includes(path))return Response.json({error:'not_found'},{status:404,headers});
+ if(!['/v1/authorization/admit','/v1/authorization/load','/v1/authorization/check','/v1/authorization/reconcile','/v1/authorization/completion-record'].includes(path))return Response.json({error:'not_found'},{status:404,headers});
  try{
   const body=await input(request);
   if(path.endsWith('/admit'))return Response.json(await authorize(body,services,now),{headers});
@@ -21,6 +22,10 @@ export async function authorityRequest(request,services,now=Math.floor(Date.now(
   const saved=await services.storage.get(`authority:${body.operationID}`);
   if(!saved)throw Error('Unknown operation');
   const record=saved.record;
+  if(path.endsWith('/completion-record')){
+   if(Object.keys(body).join()!=='operationID')throw Error('Unexpected fields');
+   return Response.json(await authorityCompletionView(saved,body.operationID),{headers});
+  }
   if(path.endsWith('/reconcile')){
    if(Object.keys(body).join()!=='operationID')throw Error('Unexpected fields');
    const receipt=await services.reconciliation.observe({operationID:body.operationID,record});

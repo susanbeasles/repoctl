@@ -34,3 +34,13 @@ test('policy rotation invalidates a retained exact run before credential issuanc
  f.services.policy.current=async()=>({...f.policy,revision:2,digest:'3'.repeat(64),executorTrust:{...f.trust,acceptedPolicyRevision:2,acceptedPolicyDigest:'3'.repeat(64)}});
  const response=await authorityRequest(new Request('https://internal/v1/authorization/check',{method:'POST',body:JSON.stringify({operationID:id,...saved.record})}),f.services,f.now);assert.equal(response.status,403);
 });
+
+test('private completion readback preserves admitted payload after expiry without reopening authority',async()=>{
+ const f=await fixture();await authorize(f.bundle,f.services,f.now);
+ f.services.policy.current=async()=>{throw Error('No new authorization permitted');};f.services.hardware.verify=async()=>{throw Error('No new authorization permitted');};
+ const req=body=>new Request('https://internal/v1/authorization/completion-record',{method:'POST',body:JSON.stringify(body)});
+ const response=await authorityRequest(req({operationID:id}),f.services,f.now+1000);assert.equal(response.status,200);const view=await response.json();assert.equal(view.ledgerPayload.commitSHA,f.intent.commitSHA);assert.equal(view.record.operation.id,id);assert.equal(view.recordDigest,await digest(view.record));
+ assert.equal((await authorityRequest(req({operationID:id,verified:true}),f.services)).status,403);
+ const saved=await f.services.storage.get(`authority:${id}`);saved.bundle.owner.signature='altered';await f.services.storage.put(`authority:${id}`,saved);
+ assert.equal((await authorityRequest(req({operationID:id}),f.services)).status,403);
+});
