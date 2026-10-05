@@ -130,3 +130,7 @@ Linux development environment. Existing v1 approval protocols remain unchanged.
 Hardware verifier, accepted-policy bootstrap, evidence/archive verifier and
 independent receipt implementations remain required bindings, not implemented
 production assurances. The private service and broker remain disabled.
+
+## Remote App vault increment
+
+Encrypted App credential adapter added with staged activation, fixed JWT signing, retirement tombstones and additive KEK rotation. Full controller suite: 61 tests pass. See APP-CREDENTIAL-CUSTODY.md for the remaining enrollment and deployment gates. No live enrollment or deployment performed.
