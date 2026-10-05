@@ -1,0 +1,9 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,writeFile,chmod,rm,access} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';import {flarekitRestore} from '../src/archive/flarekit-restore.mjs';
+test('FlareKit process adapter requires authenticated restore and Git checks and cleans plaintext',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'fk-adapter-test-'));try{
+ const binary=join(root,'fk');await writeFile(binary,`#!${process.execPath}\nconst fs=require('node:fs');let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{const r=JSON.parse(input),p=r.parameters;let output;if(r.operation==='snapshot.restore'){fs.mkdirSync(p.destination);output={manifestDigest:p.expectedManifestDigest,verification:'full-ciphertext-and-authenticated-plaintext'};}else{fs.mkdirSync(p.destination);fs.mkdirSync(p.destination+'/.git');output={gitFsck:true,allLocalObjectsRestored:true,unsafeConfigAndHooksActivated:process.env.BAD==='1'};}console.log(JSON.stringify({schemaVersion:1,requestID:r.requestID,operation:r.operation,status:'succeeded',output}));});`);await chmod(binary,0o700);
+ const archiveDigest='a'.repeat(64),options={executable:binary,configuration:join(root,'config.json'),archives:[{repositoryID:7,archiveDigest,gitManifestDigest:'b'.repeat(64),vault:root,snapshotID:'snapshot',identity:{provider:'keychain',reference:'recovery'}}]},intent={repositoryID:7,archiveDigests:[archiveDigest]};
+ const session=await flarekitRestore(options).run(intent);await access(session.directory);await session.cleanup();await assert.rejects(access(session.directory));
+ await assert.rejects(flarekitRestore({...options,environment:{BAD:'1'}}).run(intent));await assert.rejects(flarekitRestore(options).run({...intent,repositoryID:8}));
+ }finally{await rm(root,{recursive:true,force:true});}
+});
