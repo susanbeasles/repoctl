@@ -16,7 +16,8 @@ export function installationCredentials({appID,installationID,repositoryIDs,sign
   },
   async revoke(token){
    const response=await fetcher('https://api.github.com/installation/token',{method:'DELETE',redirect:'error',signal:AbortSignal.timeout(10000),headers:headers(token)});
-   if(!response.ok)throw Error(`Installation-token revocation failed (HTTP ${response.status})`);
+   // A previously revoked/expired token cannot authenticate this fixed endpoint.
+   if(!response.ok&&response.status!==401)throw Error(`Installation-token revocation failed (HTTP ${response.status})`);
   }
  };
 }

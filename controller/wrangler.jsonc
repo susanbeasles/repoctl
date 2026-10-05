@@ -3,7 +3,8 @@
   "main": "src/worker.mjs",
   "compatibility_date": "2026-10-04",
   "workers_dev": false,
-  "durable_objects": {"bindings": [{"name": "REPOSITORY_COORDINATOR", "class_name": "RepositoryCoordinator"}]},
-  "migrations": [{"tag": "v1", "new_sqlite_classes": ["RepositoryCoordinator"]}],
+  "vars": {"BROKER_ENABLED": "false"},
+  "durable_objects": {"bindings": [{"name": "REPOSITORY_COORDINATOR", "class_name": "RepositoryCoordinator"}, {"name": "BROKER_COORDINATOR", "class_name": "BrokerCoordinator"}]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["RepositoryCoordinator"]}, {"tag": "v2", "new_sqlite_classes": ["BrokerCoordinator"]}],
   "r2_buckets": [{"binding": "ARCHIVE", "bucket_name": "repoctl-archive"}]
 }

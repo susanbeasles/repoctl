@@ -1,8 +1,19 @@
+import {runtimeReady} from './runtime/services.mjs';
+export {BrokerCoordinator} from './runtime/coordinator.mjs';
 import {verifyWebhook, authorizeEvent} from './webhook.mjs';
 import {digest, putArchive} from './ledger.mjs';
 
 export default {
   async fetch(request, env) {
+    const path=new URL(request.url).pathname;
+    if(['/v1/execution/lease','/v1/execution/complete'].includes(path)){
+      const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
+      if(request.method!=='POST')return Response.json({error:'method_not_allowed'},{status:405,headers});
+      if(!runtimeReady(env)||!env.BROKER_COORDINATOR)return Response.json({error:'broker_not_configured'},{status:503,headers});
+      // One namespace object spans all repositories to reserve JWT IDs globally.
+      const id=env.BROKER_COORDINATOR.idFromName('authority-v1');
+      return env.BROKER_COORDINATOR.get(id).fetch(request);
+    }
     if (request.method !== 'POST' || new URL(request.url).pathname !== '/github/webhook') return new Response('Not found',{status:404});
     if (!env.GITHUB_WEBHOOK_SECRET || !env.REPOSITORIES_JSON) return new Response('Controller not configured',{status:503});
     const limit = 1024*1024;

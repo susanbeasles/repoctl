@@ -31,8 +31,9 @@ The broker function's return value is SECRET and belongs exclusively to the
 central executor HTTPS transport. It must never be sent to CLI, browsers, general
 project runners, artifacts, traces, receipts or logs. The authenticated response
 must use `Cache-Control: no-store`; credentials must be revoked in executor
-finally paths and after uncertain/expired leases. No HTTP broker route is exposed
-in this patch; these requirements are prerequisites for wiring one.
+finally paths and after uncertain/expired leases. Execution routes are now wired behind an explicit disabled-by-default rollout
+gate and required private service bindings. They cannot issue authority with the
+checked-in configuration. See [broker runtime](BROKER-RUNTIME.md).
 
 GitHub installation tokens have a provider lifetime of about one hour. The
 operation lease is at most five minutes, but that does NOT reduce the stolen
@@ -68,8 +69,8 @@ PEMs. No module promises that JavaScript can securely erase strings from memory.
 
 1. Remote infrastructure/bootstrap authorization and isolated provisioning UI.
 2. Encrypted remote credential storage/signer and enrollment proof verifier.
-3. Durable operation/JTI state, accepted policy records and signed receipts.
-4. Broker HTTP handler and central Actions executor with token revocation.
+3. Trusted accepted-policy admission and independently anchored signed receipts.
+4. Live qualification of the durable broker HTTP routes and central executor.
 5. Immutable candidate generation and independently verified security evidence.
 6. Baseline drift evaluation, native PR/FF compatibility tests and a complete
    positive/adversarial promotion in disposable GitHub repositories.
@@ -88,5 +89,27 @@ Central dispatch and local reusable executor source now exist under
 `workflow_depot/`. The broker HTTP handler and executor are covered by mock
 transport tests. [Central execution handoff](CENTRAL-EXECUTION.md) lists the
 production adapters and GitHub OIDC qualification required before connecting the
-handler to a public route. Neither repository has been created/deployed by this
-patch, and promotion remains inactive.
+handler to a public route. The operator has published both central repositories using the bootstrap helper.
+Promotion remains inactive pending the remote trust services and live qualification.
+
+
+## Durable broker runtime increment
+
+- Worker execution routes and a deployment-wide SQLite Durable Object exist.
+- Operation and JWT replay reservations commit atomically with recovery alarms.
+- Provider tokens are AES-256-GCM encrypted before persistent storage, with
+  operation-bound authenticated data, additive KEK rotation and cleanup alarms.
+- Disabling new issuance does not disable credential cleanup.
+- Current authority, independent verification, remote signer and independent
+  receipt services are required private bindings; their absence blocks issuance.
+- Remote RSA App-key import and constrained JWT signing primitives exist; remote
+  encrypted App-key storage, isolated enrollment and signer-service deployment
+  remain unimplemented. A non-extractable WebCrypto key is not hardware-backed.
+- Runtime HTTP/OIDC integration is tested against mock GitHub and private services.
+  Real local workerd validates the SQLite reservation transaction and alarm API.
+
+The earlier outstanding-items list remains applicable to production. Durable
+execution state and routes now have implementations, but trusted policy admission,
+hardware proof verification, reconstructable archive verification, independently
+anchored receipt persistence, isolated enrollment, and live qualification are still
+blocking. No production credential or protection change was performed here.
