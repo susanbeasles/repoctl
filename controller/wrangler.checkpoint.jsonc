@@ -1,0 +1,1 @@
+{"name":"repoctl-checkpoint","main":"src/checkpoint/entrypoint.mjs","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"CHECKPOINT_ENABLED":"false"},"durable_objects":{"bindings":[{"name":"CHECKPOINT_COORDINATOR","class_name":"CheckpointCoordinator"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["CheckpointCoordinator"]}]}
