@@ -28,3 +28,22 @@ is accepted without a trusted signature.
 The store and remote job transport are not provisioned by this module. Existing
 remote services remain disabled until those bindings and signer custody are
 configured and live qualification succeeds.
+
+## Private Worker adapter
+
+Deploy `wrangler.archive-evidence.jsonc` with a `RECOVERY_REPORTS` R2 binding
+and `ARCHIVE_EVIDENCE_CONFIG_JSON` installed configuration. Each repository entry
+contains `repositoryID`, `policyDigest`, and `keys` (public `keyID` SHA-256
+fingerprint and base64 `publicKeyX963`). No private signing or age key belongs in
+this Worker. Set `ARCHIVE_EVIDENCE_ENABLED=true` only after qualification.
+
+Bind admission's `EVIDENCE_ARCHIVES` to the named `ArchiveEvidenceService`
+entrypoint. Default public fetch always returns 404. The private entrypoint
+accepts only POST `/v1/evidence/archive` with `{ "intent": ... }` and returns
+sanitized errors with no-store headers.
+
+The trusted recovery publisher stores signed envelopes at
+`recovery/v1/<repositoryID>/<canonical-intent-sha256>.json`. Reports are limited
+to 4 MiB and intents to 16 KiB. The reader has no upload, delete, signing,
+decryption or promotion API. Grant the dedicated publisher separate bucket
+credentials; publication and encryption recovery are still separate work.

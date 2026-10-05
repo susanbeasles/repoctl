@@ -1,0 +1,1 @@
+{"name":"repoctl-archive-evidence","main":"src/archive/entrypoint.mjs","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"ARCHIVE_EVIDENCE_ENABLED":"false"}}
