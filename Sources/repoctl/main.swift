@@ -142,6 +142,8 @@ func run() throws {
         repoctl actions --help
         repoctl protect plan|apply|verify OWNER/REPO --writer-app SLUG
         repoctl protect --help
+        repoctl app plan CONFIG
+        repoctl app --help
         repoctl approval key POLICY
         repoctl approval sign INTENT --policy POLICY --approve
         repoctl approval sign-run RUN_INTENT --policy POLICY --approve
@@ -151,6 +153,7 @@ func run() throws {
         """)
         return
     }
+    if args.first == "app" { try appCommand(args); return }
     if args.first == "approval" { try approvalCommand(args); return }
     if args.first == "protect" { try protectionCommand(args); return }
     if args.first == "actions" { try actionsCommand(args); return }

@@ -26,12 +26,30 @@ export function enrollmentApprovalService({storage,trust,hardware,clock=()=>Math
    await storage.transaction(async tx=>{const k=`enrollment-approval:${intent.operationID}`,r=await tx.get(k);if(r){if(r.reference!==reference)throw Error('Enrollment approval collision');return;}await tx.put(k,{reference,envelope});});
    return {operationID:intent.operationID,approvalReference:reference,expiresAt:intent.expiresAt};
   },
+  async renew(input){
+   if(!fields(input,['previousReference','envelope'])||!hash.test(input.previousReference??''))throw Error('Invalid enrollment renewal');
+   const intent=await verify(input.envelope),now=clock();
+   if(intent.expiresAt<=now||intent.expiresAt>now+300)throw Error('Renewal expired or excessive');
+   const reference=await digest(input.envelope),k=`enrollment-approval:${intent.operationID}`;
+   const existing=await storage.get(k);if(!existing)throw Error('Unknown enrollment');
+   if(existing.reference===reference&&existing.previousReference===input.previousReference&&existing.recoveryOnly===true)return {operationID:intent.operationID,approvalReference:reference,expiresAt:intent.expiresAt,recoveryOnly:true};
+   const original=await verify(existing.envelope);
+   if(['operationID','ownerID','role','manifestDigest'].some(f=>intent[f]!==original[f])||input.envelope.keyID!==existing.envelope.keyID||intent.expiresAt<=original.expiresAt)throw Error('Renewal changes enrollment identity');
+   await storage.transaction(async tx=>{
+    const r=await tx.get(k);
+    if(r?.reference===reference&&r.previousReference===input.previousReference)return;
+    if(r?.reference!==input.previousReference)throw Error('Stale renewal');
+    await tx.put(`enrollment-approval-retired:${r.reference}`,{operationID:intent.operationID,replacedBy:reference});
+    await tx.put(k,{reference,envelope:input.envelope,previousReference:r.reference,recoveryOnly:true});
+   });
+   return {operationID:intent.operationID,approvalReference:reference,expiresAt:intent.expiresAt,recoveryOnly:true};
+  },
   async authorize(input){
    if(!fields(input,['operationID','approvalReference','action'])||!hash.test(input.operationID??'')||!hash.test(input.approvalReference??'')||!['create','exchange','reconcile','status'].includes(input.action))throw Error('Invalid enrollment authorization');
    const r=await storage.get(`enrollment-approval:${input.operationID}`);if(!r||r.reference!==input.approvalReference)throw Error('Unknown enrollment approval');
    const intent=await verify(r.envelope);
-   // Expired approval grants no new conversion or activation. Recovery requires
-   // a separately designed renewal protocol; never silently extend its lifetime.
+   // A fresh renewal cannot reopen registration or consume another code.
+   if(r.recoveryOnly===true&&!['reconcile','status'].includes(input.action))throw Error('Recovery-only approval');
    if(intent.expiresAt<=clock())throw Error('Enrollment approval expired');
    return {accepted:true,operationID:intent.operationID,approvalReference:r.reference,session:{ownerID:intent.ownerID,role:intent.role,manifestDigest:intent.manifestDigest,expiresAt:intent.expiresAt*1000}};
   }

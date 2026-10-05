@@ -13,6 +13,9 @@ try{
  const admitted=await call('admit',envelope);assert.equal(admitted.status,200);const admission=await admitted.json(),input={operationID:intent.operationID,approvalReference:admission.approvalReference,action:'exchange'};
  const authorized=await call('authorize',input);assert.equal(authorized.status,200);assert.equal((await authorized.json()).session.manifestDigest,intent.manifestDigest);
  assert.equal((await call('admit',{...envelope,signature:Buffer.alloc(70).toString('base64')})).status,403);
+ const freshIntent={...intent,expiresAt:intent.expiresAt+30},freshPayload=Buffer.from(JSON.stringify(freshIntent,null,2)+'\n'),freshEnvelope={...envelope,payload:freshPayload.toString('base64'),signature:sign('sha256',Buffer.concat([Buffer.from('repoctl-app-enrollment-owner-v1\n'),freshPayload]),pair.privateKey).toString('base64')};
+ const renewedResponse=await call('renew',{previousReference:admission.approvalReference,envelope:freshEnvelope});assert.equal(renewedResponse.status,200);const renewed=await renewedResponse.json();
+ const recovery={...input,approvalReference:renewed.approvalReference};assert.equal((await call('authorize',recovery)).status,403);assert.equal((await call('authorize',{...recovery,action:'reconcile'})).status,200);assert.equal((await call('authorize',input)).status,403);
  revoked=true;assert.equal((await call('authorize',input)).status,403);
- console.log('PASS: real workerd private enrollment authority verifies DER exact bytes and blocks current revocation');
+ console.log('PASS: real workerd private enrollment authority verifies DER exact bytes and blocks current revocation and limits fresh renewal to recovery');
 }finally{await mf.dispose();}

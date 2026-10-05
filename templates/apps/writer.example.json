@@ -1,0 +1,9 @@
+{
+ "format": 1,
+ "name": "Personal repository writer",
+ "owner": "susanbeasles",
+ "role": "writer",
+ "homepage": "https://vespoli.me",
+ "callback": "https://provision.vespoli.me/github/callback",
+ "repositories": ["susanbeasles/repoctl"]
+}

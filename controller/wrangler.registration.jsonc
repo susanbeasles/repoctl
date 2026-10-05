@@ -1,0 +1,1 @@
+{"name":"repoctl-app-registration","main":"src/provisioning/entrypoint.mjs","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"REGISTRATION_ENABLED":"false"},"durable_objects":{"bindings":[{"name":"REGISTRATION_COORDINATOR","class_name":"RegistrationCoordinator"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["RegistrationCoordinator"]}]}
