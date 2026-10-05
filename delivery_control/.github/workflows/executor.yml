@@ -1,0 +1,27 @@
+name: Trusted ref executor
+on:
+  workflow_call:
+    inputs:
+      operation_id:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  execute:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Execute approved ref update
+        env:
+          REPOCTL_OPERATION_ID: ${{ inputs.operation_id }}
+          REPOCTL_CONTROLLER_ORIGIN: ${{ vars.REPOCTL_CONTROLLER_ORIGIN }}
+          REPOCTL_OIDC_AUDIENCE_PREFIX: ${{ vars.REPOCTL_OIDC_AUDIENCE_PREFIX }}
+        run: node src/execute.mjs

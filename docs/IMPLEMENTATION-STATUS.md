@@ -79,3 +79,14 @@ FlareKit remains an optional archive adapter. None of these primitives require
 installing fk or yk. Production hardware approval may use an optional yk adapter
 once its proof/enrollment contract is validated; unavailable required hardware
 blocks production instead of falling back to software.
+
+
+## Central execution increment
+
+Central dispatch and local reusable executor source now exist under
+`delivery_control/`, with a read-only shared validation entry point under
+`workflow_depot/`. The broker HTTP handler and executor are covered by mock
+transport tests. [Central execution handoff](CENTRAL-EXECUTION.md) lists the
+production adapters and GitHub OIDC qualification required before connecting the
+handler to a public route. Neither repository has been created/deployed by this
+patch, and promotion remains inactive.

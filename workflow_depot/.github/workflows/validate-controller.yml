@@ -1,0 +1,25 @@
+name: Validate controller candidate
+on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Validate exact candidate SHA
+        env:
+          CANDIDATE: ${{ inputs.candidate_sha }}
+        run: '[[ "$CANDIDATE" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - name: Run candidate controller tests without privileged credentials
+        run: node --test controller/test/*.test.mjs

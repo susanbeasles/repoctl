@@ -1,0 +1,20 @@
+name: Central promotion dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      operation_id:
+        description: Controller-retained authorized operation ID
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: central-promotion
+  cancel-in-progress: false
+jobs:
+  execute:
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/executor.yml
+    with:
+      operation_id: ${{ inputs.operation_id }}
