@@ -48,6 +48,11 @@ export function checkpointService({storage,bucket,bootstrap,trustedKeys,completi
    if(repositoryID!==bootstrap.repositoryID||!Number.isSafeInteger(startSequence)||!Number.isSafeInteger(endSequence)||startSequence<1||endSequence<startSequence-1)throw Error('Invalid ledger range');
    const result=await read();if(endSequence>result.anchor.endSequence||startSequence>result.anchor.endSequence+1)throw Error('Ledger range unavailable');return result.entries.slice(startSequence-1,endSequence);
   },
+  async receipt({repositoryID,operationID}){
+   if(repositoryID!==bootstrap.repositoryID||!hash.test(operationID??''))throw Error('Invalid receipt observation');
+   const saved=await storage.get(`checkpoint-complete:${operationID}`);if(!saved)throw Error('No completed checkpoint receipt');
+   await read();if(saved.operationID!==operationID||saved.repositoryID!==repositoryID||await digest(await object(objectKey(saved.sequence)))!==saved.digest)throw Error('Retained receipt differs');return saved;
+  },
   async append(request){
    if(!exact(request,['operationID','entry'])||!hash.test(request.operationID??''))throw Error('Invalid append');
    const fingerprint=await entryHash(request.entry),p=request.entry.payload,id=request.operationID;

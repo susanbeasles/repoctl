@@ -34,6 +34,7 @@ export class CheckpointCoordinator extends DurableObject{
    if(path==='/v1/checkpoint/initialize'){if(Object.keys(body).join()!=='repositoryID')throw Error('Unexpected fields');result=await service.initialize();}
    else if(path==='/v1/checkpoint/current'){if(Object.keys(body).join()!=='repositoryID')throw Error('Unexpected fields');result=await service.current(body);}
    else if(path==='/v1/checkpoint/entries'){if(Object.keys(body).sort().join()!==['repositoryID','startSequence','endSequence'].sort().join())throw Error('Unexpected fields');result=await service.entries(body);}
+   else if(path==='/v1/checkpoint/receipt'){if(Object.keys(body).sort().join()!==['repositoryID','operationID'].sort().join())throw Error('Unexpected fields');result=await service.receipt(body);}
    else if(path==='/v1/checkpoint/append')result=await service.append(body);
    else if(path==='/v1/evidence/history'){
     if(Object.keys(body).join()!=='intent')throw Error('Unexpected fields');

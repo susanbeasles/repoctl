@@ -7,13 +7,14 @@ const payload=promotionPayload({repositoryID:1,sequence:1,previousDigest:hash,ba
 const view={record,recordDigest:await digest(record),ledgerPayload:payload,approvalDigest:hash,enrollmentProofDigest:hash},lease={operationID:hash,recordDigest:await digest(record),state:'issued',runID:5,runAttempt:1,expiresAt:900,providerExpiresAt:4000};
 const input={operationID:hash,repositoryID:1,entryPayloadDigest:await digest(payload),baseSHA:a,commitSHA:b};let tip=b;
 const mf=new Miniflare(convertV4MiniflareOptions({workers:[
- {name:'observer',modules:true,script:await readFile(observerPath,'utf8'),compatibilityDate:'2026-10-04',bindings:{OBSERVATION_ENABLED:'true',OBSERVATION_CONFIG_JSON:JSON.stringify([{repositoryID:1,repository:'owner/repo',branch:'main'}])},serviceBindings:{OBSERVATION_AUTHORITY:async r=>{assert.equal(new URL(r.url).pathname,'/v1/authorization/completion-record');assert.deepEqual(await r.json(),{operationID:hash});return Response.json(view);},OBSERVATION_BROKER:async r=>{assert.equal(new URL(r.url).pathname,'/v1/broker/lease-observation');return Response.json(lease);}},outboundService:async r=>{
+ {name:'observer',modules:true,script:await readFile(observerPath,'utf8'),compatibilityDate:'2026-10-04',bindings:{OBSERVATION_ENABLED:'true',OBSERVATION_CONFIG_JSON:JSON.stringify([{repositoryID:1,repository:'owner/repo',branch:'main'}])},serviceBindings:{OBSERVATION_AUTHORITY:async r=>{if(new URL(r.url).pathname==='/v1/authorization/check')return Response.json({operationID:hash,accepted:true});assert.equal(new URL(r.url).pathname,'/v1/authorization/completion-record');assert.deepEqual(await r.json(),{operationID:hash});return Response.json(view);},OBSERVATION_BROKER:async r=>{assert.equal(new URL(r.url).pathname,'/v1/broker/lease-observation');return Response.json(lease);}},outboundService:async r=>{
   const url=new URL(r.url);assert.equal(url.origin,'https://api.github.com');assert.equal(r.headers.get('Authorization'),null);
   if(url.pathname==='/repos/owner/repo')return Response.json({id:1});
   if(url.pathname==='/repos/owner/repo/git/ref/heads/main')return Response.json({ref:'refs/heads/main',object:{type:'commit',sha:tip}});
   const sha=url.pathname.split('/').at(-1);assert.ok([b,c].includes(sha));return Response.json({sha,parents:[{sha:a}],tree:{sha:a},verification:{verified:true,reason:'valid'}});
  }},
  {name:'caller',modules:true,script:'export default {fetch(r,e){return e.OBSERVER.fetch(r);}}',compatibilityDate:'2026-10-04',serviceBindings:{OBSERVER:{name:'observer',entrypoint:'CompletionObservationService'}}},
+ {name:'verifier-caller',modules:true,script:'export default {fetch(r,e){return e.VERIFIER.fetch(r);}}',compatibilityDate:'2026-10-04',serviceBindings:{VERIFIER:{name:'observer',entrypoint:'BrokerVerificationService'}}},
  {name:'broker',modules:true,script:await readFile(brokerPath,'utf8'),compatibilityDate:'2026-10-04',durableObjects:{BROKER_COORDINATOR:{className:'BrokerCoordinator',useSQLite:true}}},
  {name:'broker-caller',modules:true,script:'export default {fetch(r,e){return e.OBSERVER.fetch(r);}}',compatibilityDate:'2026-10-04',serviceBindings:{OBSERVER:{name:'broker',entrypoint:'BrokerObservationService'}}}
 ]}));
@@ -22,6 +23,9 @@ try{
  assert.equal((await (await mf.getWorker('observer')).fetch(request())).status,404);
  const response=await caller.fetch(request());assert.equal(response.status,200);assert.deepEqual(await response.json(),{...input,promoted:true});
  lease.state='issuing';assert.equal((await caller.fetch(request())).status,403);lease.state='issued';tip=a;assert.equal((await caller.fetch(request())).status,403);
+ const verifier=await mf.getWorker('verifier-caller'),brokerRequest={operationID:hash,operation:record.operation,intent:record.intent};
+ assert.equal((await verifier.fetch('https://internal/v1/evidence/authorization',{method:'POST',body:JSON.stringify(brokerRequest)})).status,200);
+ tip=b;assert.equal((await verifier.fetch('https://internal/v1/evidence/completion',{method:'POST',body:JSON.stringify(brokerRequest)})).status,200);
  const broker=await mf.getWorker('broker'),privateCaller=await mf.getWorker('broker-caller');
  const leaseRequest=new Request('https://internal/v1/broker/lease-observation',{method:'POST',body:JSON.stringify({operationID:hash})});
  assert.equal((await broker.fetch(leaseRequest.clone())).status,404);assert.equal((await privateCaller.fetch(leaseRequest)).status,403);

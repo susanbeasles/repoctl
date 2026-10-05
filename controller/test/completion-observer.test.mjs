@@ -32,3 +32,16 @@ test('moving main or retained approval during observation cannot confirm complet
  const f=await fixture();let n=0;f.config.github.tip=async()=>++n===1?b:a;await assert.rejects(completionObserver(f.config).verify(f.request));
  const g=await fixture();let reads=0;g.config.authority.load=async()=>++reads===1?g.view:{...g.view,approvalDigest:'b'.repeat(64)};await assert.rejects(completionObserver(g.config).verify(g.request));
 });
+
+import {brokerVerifier} from '../src/observation/broker-verifier.mjs';
+test('broker pre-write verification repeats current authority and exact fast-forward observations',async()=>{
+ const f=await fixture();let checks=0;f.config.authority.check=async r=>{checks++;assert.deepEqual(r.record,undefined);return {operationID:hash,accepted:true};};f.config.github.tip=async()=>a;
+ const verifier=brokerVerifier({authority:f.config.authority,github:f.config.github,completion:completionObserver(f.config)}),request={operationID:hash,operation:f.view.record.operation,intent:f.view.record.intent};
+ assert.equal((await verifier.authorization(request)).verified,true);assert.equal(checks,1);
+ f.config.authority.check=async()=>({operationID:hash,accepted:false});await assert.rejects(verifier.authorization(request));
+});
+test('broker completion verifies retained request and issued lease without minting authority',async()=>{
+ const f=await fixture(),verifier=brokerVerifier({authority:f.config.authority,github:f.config.github,completion:completionObserver(f.config)}),request={operationID:hash,operation:f.view.record.operation,intent:f.view.record.intent};
+ assert.equal((await verifier.completion(request)).verified,true);await assert.rejects(verifier.completion({...request,intent:{...request.intent,commitSHA:c}}));
+ f.lease.state='issuing';await assert.rejects(verifier.completion(request));
+});

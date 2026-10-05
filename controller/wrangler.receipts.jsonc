@@ -1,0 +1,1 @@
+{"name":"repoctl-ledger-receipts","main":"src/receipts/entrypoint.mjs","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"RECEIPTS_ENABLED":"false"},"durable_objects":{"bindings":[{"name":"LEDGER_RECEIPT_COORDINATOR","class_name":"LedgerReceiptCoordinator"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["LedgerReceiptCoordinator"]}]}

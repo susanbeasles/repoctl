@@ -50,8 +50,9 @@ not protect against compromise or simultaneous rollback of all those services. I
 not prove that an issued token caused the update; it confirms that the approved candidate
 is now the protected tip and the corresponding lease was successfully issued.
 
-Signed receipt construction and BROKER_RECEIPTS finalize/observe routing remain separate.
-BROKER_VERIFIER pre-write and completion routes also remain separate. Archive recovery,
+Signed receipt construction and BROKER_RECEIPTS finalize/observe routing are implemented
+by LedgerReceiptService. BrokerVerificationService supplies pre-write and completion
+routes from this Worker. See SIGNED-RECEIPTS.md for binding and custody requirements. Archive recovery,
 hardware enrollment, provider locks and production bindings still require qualification.
 Do not enable issuance by substituting caller flags or test observers for those services.
 

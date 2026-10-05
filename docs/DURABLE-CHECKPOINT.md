@@ -41,7 +41,7 @@ repositoryID, entryPayloadDigest, baseSHA and commitSHA, plus promoted true. The
 service must independently load the retained approved operation and execution lease,
 verify the proposed ledger payload against them, and observe actual promotion.
 It must not trust an executor assertion or echo caller fields without verification.
-No implementation of that completion observer is supplied by this patch.
+CompletionObservationService implements this capability; see COMPLETION-OBSERVER.md.
 
 After confirmation, the Worker conditionally creates and reads back the signed R2
 object. One SQLite transaction commits the index, operation receipt and checkpoint
@@ -73,5 +73,5 @@ Local qualification covers real workerd, SQLite Durable Object transactions, R2
 readback, private entrypoints, a pending reservation surviving process restart, and
 exact retry. It uses synthetic signing keys and a test completion observer. No live
 GitHub promotion, production bucket lock or remote hardware enrollment is qualified.
-The Worker is not a substitute for BROKER_RECEIPTS finalize/observe routes; the signed
-receipt adapter and independently verifying completion service remain required.
+LedgerReceiptService supplies BROKER_RECEIPTS finalize/observe routes and
+CompletionObservationService supplies independent completion. See SIGNED-RECEIPTS.md.
