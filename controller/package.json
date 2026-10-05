@@ -1,1 +1,1 @@
-{"name":"repoctl-controller","private":true,"type":"module","scripts":{"test":"node --test test/*.test.mjs"},"engines":{"node":">=22"}}
+{"name":"repoctl-controller","private":true,"type":"module","scripts":{"test":"node --test test/*.test.mjs"},"engines":{"node":">=22"},"devDependencies":{"wrangler":"4.147.0"}}
