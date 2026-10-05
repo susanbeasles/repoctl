@@ -6,3 +6,5 @@ __pycache__/
 !/profile.example.json
 /plan.json
 *.seal.json
+
+/.wrangler/
