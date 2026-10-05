@@ -3,11 +3,11 @@ import Security
 import CryptoKit
 
 func approvalCommand(_ args: [String]) throws {
-    let usage = "repoctl approval key POLICY\nrepoctl approval sign INTENT --policy POLICY --approve\nrepoctl approval sign-run RUN_INTENT --policy POLICY --approve\nUses the existing sealed policy key with a separate promotion domain. Keychain is software-backed; SEP has no fallback. Public-key enrollment on the validator/writer is separate."
+    let usage = "repoctl approval key POLICY\nrepoctl approval sign INTENT --policy POLICY --approve\nrepoctl approval sign-run RUN_INTENT --policy POLICY --approve\nrepoctl approval sign-enrollment INTENT --policy POLICY --approve\nUses the existing sealed policy key with a separate promotion domain. Keychain is software-backed; SEP has no fallback. Public-key enrollment on the validator/writer is separate."
     if args == ["approval", "--help"] { print(usage); return }
     try require(args.count >= 3, usage)
     let action = args[1]
-    try require((action == "key" && args.count == 3) || (["sign", "sign-run"].contains(action) && args.count == 6 && args[3] == "--policy" && args[5] == "--approve"), usage)
+    try require((action == "key" && args.count == 3) || (["sign", "sign-run", "sign-enrollment"].contains(action) && args.count == 6 && args[3] == "--policy" && args[5] == "--approve"), usage)
     let policy = account(action == "key" ? args[2] : args[4])
     try verifyPolicy(policy)
     guard let trust = try readTrust(policy), let key = try findKey(policy) else { throw Failure("Sealed policy signing key unavailable") }
@@ -16,6 +16,10 @@ func approvalCommand(_ args: [String]) throws {
     let keyID = SHA256.hash(data: publicKey).map { String(format: "%02x", $0) }.joined()
     if action == "key" {
         print(String(decoding: try JSONSerialization.data(withJSONObject: ["keyID": keyID, "publicKeyX963": publicKey.base64EncodedString(), "provider": trust.provider], options: [.prettyPrinted, .sortedKeys]), as: UTF8.self)); return
+    }
+    if action == "sign-enrollment" {
+        try signAppEnrollment(args[2], trust: trust, key: key, keyID: keyID)
+        return
     }
     if action == "sign-run" {
         try signExecutionRun(args[2], policy: policy, trust: trust, key: key, keyID: keyID)
@@ -84,4 +88,30 @@ func signExecutionRun(_ path: String, policy: String, trust: Trust, key: SecKey,
     let envelope: [String: Any] = ["protocol": "repoctl-execution-owner-v1", "keyID": keyID, "encoding": "der", "payload": input.base64EncodedString(), "signature": (signature as Data).base64EncodedString()]
     try JSONSerialization.data(withJSONObject: envelope, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: output), options: .withoutOverwriting)
     print("Signed exact execution run approval. Wrote \(output). Provider: \(trust.provider). No remote action performed.")
+}
+
+func signAppEnrollment(_ path: String, trust: Trust, key: SecKey, keyID: String) throws {
+    let input = try Data(contentsOf: URL(fileURLWithPath: path))
+    try require(input.count <= 3000, "Enrollment intent too large")
+    guard let body = try JSONSerialization.jsonObject(with: input) as? [String: Any] else { throw Failure("Invalid enrollment intent JSON") }
+    let fields: Set<String> = ["operationID", "ownerID", "role", "manifestDigest", "expiresAt"]
+    try require(Set(body.keys) == fields, "Unexpected enrollment intent fields")
+    for name in ["operationID", "manifestDigest"] {
+        guard let value = body[name] as? String else { throw Failure("Missing \(name)") }
+        try require(value.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil, "Invalid \(name)")
+    }
+    guard let owner = body["ownerID"] as? Int, owner > 0,
+          let role = body["role"] as? String, ["writer", "validator", "builder", "release"].contains(role),
+          let expires = body["expiresAt"] as? Int else { throw Failure("Invalid enrollment identity, role or expiry") }
+    let now = Int(Date().timeIntervalSince1970)
+    try require(expires > now && expires <= now + 300, "Enrollment approval lifetime exceeds five minutes")
+    let output = path + ".enrollment-approval.json"
+    try require(!FileManager.default.fileExists(atPath: output), "Enrollment approval exists; will not replace it")
+    FileHandle.standardError.write(Data("Approving App enrollment for owner \(owner), role \(role), manifest digest \(body["manifestDigest"] ?? ""), operation \(body["operationID"] ?? ""). Authorize the enrolled \(trust.provider) key if prompted.\n".utf8))
+    var message = Data("repoctl-app-enrollment-owner-v1\n".utf8); message.append(input)
+    var error: Unmanaged<CFError>?
+    guard let signature = SecKeyCreateSignature(key, .ecdsaSignatureMessageX962SHA256, message as CFData, &error) else { throw Failure(error?.takeRetainedValue().localizedDescription ?? "Enrollment approval signing failed") }
+    let envelope: [String: Any] = ["protocol": "repoctl-app-enrollment-owner-v1", "keyID": keyID, "encoding": "der", "payload": input.base64EncodedString(), "signature": (signature as Data).base64EncodedString()]
+    try JSONSerialization.data(withJSONObject: envelope, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: output), options: .withoutOverwriting)
+    print("Signed exact App enrollment approval. Wrote \(output). Provider: \(trust.provider). No remote action performed.")
 }
