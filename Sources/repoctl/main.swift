@@ -136,11 +136,23 @@ func run() throws {
         repoctl policy status FILE
         Signing default: SEP. No automatic fallback. Seal signs exact JSON bytes.
         repoctl repo inspect|plan|apply|verify OWNER/REPO
+        repoctl security inspect|plan|apply OWNER/REPO
+        repoctl security --help
+        repoctl actions inspect|plan|apply|verify OWNER/REPO [--app SLUG]
+        repoctl actions --help
+        repoctl protect plan|apply|verify OWNER/REPO --writer-app SLUG
+        repoctl protect --help
+        repoctl approval key POLICY
+        repoctl approval sign INTENT --policy POLICY --approve
         apply requires --accept-locked-bootstrap. GitHub CLI (gh) required.
-        Locked bootstrap disables Actions and all protected-branch writers.
+        Configure Actions policy first. Locked bootstrap still blocks all protected-branch writers.
         """)
         return
     }
+    if args.first == "approval" { try approvalCommand(args); return }
+    if args.first == "protect" { try protectionCommand(args); return }
+    if args.first == "actions" { try actionsCommand(args); return }
+    if args.first == "security" { try securityCommand(args); return }
     if args.first == "repo" { try repositoryCommand(args); return }
     try require(args.count >= 3 && args[0] == "policy", "Unknown command; use --help")
     let action = args[1], path = account(args[2])

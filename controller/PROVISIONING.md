@@ -1,3 +1,8 @@
+> **Legacy intake-only instructions.** This workflow does not satisfy the production
+> credential-provisioning requirements in [the governance specification](../docs/GOVERNANCE-SPEC.md).
+> Do not use manual local webhook/App secret handling to provision promotion.
+> The remote enrollment/broker extension is not deployed by these commands.
+
 # Provisioning webhook intake
 
 This stage deploys authenticated, owner-only event intake and receipt archival. Promotion, Git backups, signed ledger publication, and GitHub App writes remain disabled. R2 bucket locks are not configured by these commands.

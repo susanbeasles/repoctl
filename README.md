@@ -82,7 +82,7 @@ repoctl status
 repoctl doctor
 ```
 
-`init` should create the repository with Actions disabled, seed the signed
+`init` should configure actor/event restrictions before enabling Actions, seed the signed
 default branch, install the pinned controller/CI policy, reconcile rules,
 enable immutable releases, verify effective permissions, and only then enable
 Actions. Existing repos require a plan of their current refs and policies;
@@ -249,7 +249,7 @@ repoctl repo verify susanbeasles/repoctl
 ```
 
 **Apply locks main/default/master against ALL updates, creation and deletion,
-including by you; it also disables Actions.** Do not apply expecting ordinary
+including by you. Actions remain enabled with a separately configured owner/event policy.** Do not apply expecting ordinary
 PR merging to work. Configure the promotion App in a later phase before any
 writer is allowed onto protected branches. An administrator can edit rules
 through GitHub if recovery is necessary; this is not administrator-proof.
@@ -263,10 +263,50 @@ bootstrap commands; do not mistake them for sealed customizable policy apply.
 
 Managed rules use `repoctl/bootstrap-v1/` names. Unrelated and inherited rules
 are preserved. Matching inherited names and duplicates abort before mutation.
-Actions are disabled first; subsequent failure does not automatically remove
+Apply verifies the Actions policy first; subsequent failure does not automatically remove
 protections. Re-running resumes reconciliation. Verification compares managed
 configuration and checks Actions/immutability; it is not an adversarial test
 of effective platform enforcement. Multi-call GitHub changes are non-atomic.
 
 Native Swift compilation and authenticated API writes must be tested on macOS.
 Do not claim the full promotion preset works from this bootstrap phase alone.
+
+
+## Actions configuration
+
+Run `repoctl actions plan OWNER/REPO`, then `repoctl actions apply OWNER/REPO`
+and `repoctl actions verify OWNER/REPO`. This installs server-side actor/event
+restrictions before enabling Actions, defaults workflow tokens to read, and
+disables automatic PR approval. Only the owner can trigger push, dispatch or
+workflow_call. Outsider/fork PR events are excluded. Existing selected-action
+allowlists and other policies are preserved; more restrictive inherited policies
+may still block runs. API failures abort rather than silently falling back to
+workflow-level conditions. Explicitly add a trusted App using `--app SLUG` on
+plan/apply/verify; slug resolves to its current numeric App ID. This authorizes
+the App as a trigger actor, not as a branch bypass.
+
+Do not apply the locked bootstrap expecting promotion: it still freezes main
+against every writer. The App-backed promotion path is not implemented yet.
+
+## Promotion primitives
+
+`repoctl protect plan|apply|verify OWNER/REPO --writer-app SLUG` separates
+App-only main updates from no-bypass integrity and lifecycle protection. Review
+[the deployment boundary](controller/PROMOTION.md) before applying: App readiness,
+candidate generation, archives, evidence collection and release automation still
+need integration. The receipt webhook remains unchanged and cannot promote.
+
+`repoctl approval key POLICY` exports the enrolled policy public key.
+`repoctl approval sign INTENT --policy POLICY --approve` signs an exact, short-lived
+promotion intent under a separate domain. This does not sign Git commits or imply
+YubiKey authorization when the enrolled provider is software Keychain.
+
+
+## Governance extension
+
+[The governance specification](docs/GOVERNANCE-SPEC.md) defines the intended
+20–30 repository delivery system, including remote-only credential onboarding,
+OIDC-authorized central execution and rotation. [Implementation status and trust
+boundaries](docs/IMPLEMENTATION-STATUS.md) distinguish tested primitives from
+missing production integrations. The broker is not exposed by the current
+webhook Worker. Project CI never receives a production promotion App key.

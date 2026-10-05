@@ -1,0 +1,22 @@
+# Install only after trusted App promotion and Actions policies are configured.
+name: History integrity
+on:
+  push:
+    branches: [main, master]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.after }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check exactly one append-only commit
+        env:
+          REPOCTL_BEFORE: ${{ github.event.before }}
+          REPOCTL_AFTER: ${{ github.event.after }}
+        run: node controller/scripts/verify-history.mjs

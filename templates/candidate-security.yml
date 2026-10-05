@@ -1,0 +1,78 @@
+# Copy to .github/workflows only after reviewing the Actions policy.
+# Dispatch against trusted main; candidate is an exact immutable-generation SHA.
+name: Candidate security
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Exact candidate commit SHA (40 hex)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  swift-sast:
+    if: github.actor == github.repository_owner && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Validate input
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: '[[ "$CANDIDATE" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.candidate }}
+          persist-credentials: false
+      - uses: github/codeql-action/init@7999b86c43a865dc79d8923397f35af22de63401 # v4
+        with:
+          languages: swift
+          build-mode: manual
+          queries: security-extended
+      - name: Compile candidate (no promotion secrets)
+        run: swift build --arch "$(uname -m)"
+      - uses: github/codeql-action/analyze@7999b86c43a865dc79d8923397f35af22de63401
+        with:
+          category: /language:swift
+  controller-security:
+    if: github.actor == github.repository_owner && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Validate input
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: '[[ "$CANDIDATE" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.candidate }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - uses: github/codeql-action/init@7999b86c43a865dc79d8923397f35af22de63401
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+      - name: Dependencies and runtime tests
+        working-directory: controller
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=low
+          node --test test/*.test.mjs
+      - uses: github/codeql-action/analyze@7999b86c43a865dc79d8923397f35af22de63401
+        with:
+          category: /language:javascript
+      - name: Source malware scan
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clamav
+          sudo systemctl stop clamav-freshclam.service || true
+          sudo freshclam
+          clamscan --recursive --infected --exclude-dir='^./.git/' .

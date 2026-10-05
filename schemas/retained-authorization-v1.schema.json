@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:repoctl:retained-authorization:v1",
+  "title": "Trusted remotely retained authorization; never accepted directly from project requests",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "state", "operation", "expiresAt", "authorizationProvider", "hardwareEnrollmentVerified", "policyRevision", "policyDigest", "targetRef", "repositoryID", "runID", "runAttempt"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "state": {"const": "authorized"},
+    "operation": {"const": "promote"},
+    "expiresAt": {"type": "integer", "minimum": 1, "description": "Unix seconds; no more than five minutes beyond issuance"},
+    "authorizationProvider": {"const": "hardware"},
+    "hardwareEnrollmentVerified": {"const": true, "description": "Derived from trusted enrollment verification, never a client assertion"},
+    "policyRevision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "policyDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "targetRef": {"type": "string", "pattern": "^refs/heads/[A-Za-z0-9_./-]+$"},
+    "repositoryID": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "runID": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "runAttempt": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+  }
+}

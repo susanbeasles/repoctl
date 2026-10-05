@@ -99,12 +99,12 @@ func repositoryCommand(_ args: [String]) throws {
     if action == "plan" {
         let plan: [String: Any] = ["profile": "locked-bootstrap", "repository_id": repositoryID,
             "repository": repo, "authenticated_user_id": ownerID, "rulesets": desired,
-            "actions_enabled": false, "immutable_releases": true,
+            "actions_enabled": true, "immutable_releases": true,
             "warning": "Main is locked to every writer, including owner. No promotion App is configured. Working branches remain owner-only. Tags cannot move/delete; only owner may create them in this phase. No remote changes made."]
         print(String(decoding: try JSONSerialization.data(withJSONObject: plan, options: [.prettyPrinted, .sortedKeys]), as: UTF8.self)); return
     }
     if action == "apply" {
-        try require(args.last == "--accept-locked-bootstrap", "Review repo plan first; apply requires --accept-locked-bootstrap because main will reject all updates and Actions will be disabled")
+        try require(args.last == "--accept-locked-bootstrap", "Review repo plan first; apply requires --accept-locked-bootstrap because main will reject all updates and no promotion writer is configured")
         // Fail before mutation if a managed name collides with inherited rules.
         for rule in desired {
             let matches = inventory.filter { $0["name"] as? String == rule["name"] as? String }
@@ -113,7 +113,8 @@ func repositoryCommand(_ args: [String]) throws {
                 try require(match["source_type"] as? String == "Repository" && (match["source"] as? String)?.lowercased() == repo.lowercased(), "Managed ruleset name collides with an inherited ruleset")
             }
         }
-        _ = try client.request("repos/\(repo)/actions/permissions", method: "PUT", body: ["enabled": false])
+        // Require an explicitly configured Actions policy; never disable Actions.
+        try actionsCommand(["actions", "verify", repo])
         for rule in desired {
             if let old = inventory.first(where: { $0["name"] as? String == rule["name"] as? String }), let id = old["id"] as? Int {
                 let actual = try client.request("repos/\(repo)/rulesets/\(id)")
@@ -124,6 +125,7 @@ func repositoryCommand(_ args: [String]) throws {
         _ = try client.request("repos/\(repo)/immutable-releases", method: "PUT")
         // No automatic rollback removes safety rules if a later call fails. Rerun to resume.
     }
+    try actionsCommand(["actions", "verify", repo])
     let current = try client.rules(repo)
     for rule in desired {
         let matches = current.filter { $0["name"] as? String == rule["name"] as? String }
@@ -134,7 +136,7 @@ func repositoryCommand(_ args: [String]) throws {
     }
     let actions = try client.request("repos/\(repo)/actions/permissions") as? [String: Any]
     let releases = try client.request("repos/\(repo)/immutable-releases") as? [String: Any]
-    try require(actions?["enabled"] as? Bool == false, "Actions must remain disabled in locked-bootstrap")
+    try require(actions?["enabled"] as? Bool == true, "Actions must be enabled")
     try require(releases?["enabled"] as? Bool == true, "Immutable releases are not enabled")
     print("Verified managed locked-bootstrap configuration for \(repo). Inherited/unmanaged rules preserved; behavioral enforcement tests and promotion setup remain pending.")
 }
