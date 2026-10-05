@@ -144,6 +144,7 @@ func run() throws {
         repoctl protect --help
         repoctl approval key POLICY
         repoctl approval sign INTENT --policy POLICY --approve
+        repoctl approval sign-run RUN_INTENT --policy POLICY --approve
         apply requires --accept-locked-bootstrap. GitHub CLI (gh) required.
         Configure Actions policy first. Locked bootstrap still blocks all protected-branch writers.
         """)

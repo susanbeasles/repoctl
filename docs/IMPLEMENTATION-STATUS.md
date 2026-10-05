@@ -113,3 +113,20 @@ execution state and routes now have implementations, but trusted policy admissio
 hardware proof verification, reconstructable archive verification, independently
 anchored receipt persistence, isolated enrollment, and live qualification are still
 blocking. No production credential or protection change was performed here.
+
+
+## Private authorization increment
+
+A separate private Worker entrypoint and durable admission service now implement
+the broker authority contract. They verify existing owner/validator approvals, a
+new exact-run owner signature, signer fingerprints, accepted executor trust, live
+hardware-verifier results, independent evidence and pending-repository exclusion.
+Completion releases the pending slot only through independently verified receipt
+reconciliation; nonce tombstones remain. See [authorization service](AUTHORIZATION-SERVICE.md).
+
+The native `approval sign-run` command preserves exact reviewed bytes in a new
+domain. Its macOS compile/signature smoke test is supplied but was not run in the
+Linux development environment. Existing v1 approval protocols remain unchanged.
+Hardware verifier, accepted-policy bootstrap, evidence/archive verifier and
+independent receipt implementations remain required bindings, not implemented
+production assurances. The private service and broker remain disabled.
