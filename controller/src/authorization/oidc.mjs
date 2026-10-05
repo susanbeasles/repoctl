@@ -9,7 +9,7 @@ function json(value){return JSON.parse(new TextDecoder('utf-8',{fatal:true}).dec
 // No JWT-selected URL, algorithm, issuer or JWK. The only production JWKS origin
 // is GitHub's documented issuer; tests inject key inventory, not an alternate URL.
 export async function githubJWKS(fetcher=fetch){
- const response=await fetcher(`${issuer}/.well-known/jwks`,{redirect:'error',signal:AbortSignal.timeout(10000)});
+ const response=await fetcher(`${issuer}/.well-known/jwks`,{redirect:'manual',signal:AbortSignal.timeout(10000)});
  if(!response.ok)reject('OIDC trust-key retrieval failed');
  const raw=await response.text();if(raw.length>128000)reject('OIDC trust-key inventory too large');
  const data=JSON.parse(raw);if(!Array.isArray(data.keys)||data.keys.length>32)reject('Invalid OIDC trust-key inventory');

@@ -3,7 +3,7 @@ const roles={writer:{contents:'write'},validator:{contents:'read',checks:'read',
 const sorted=x=>JSON.stringify(Object.entries(x).sort(([a],[b])=>a.localeCompare(b)));
 export function githubEnrollmentProvider(fetcher=fetch,clock=()=>Math.floor(Date.now()/1000)){
  async function request(path,options){
-  const r=await fetcher(`https://api.github.com${path}`,{...options,redirect:'error',signal:AbortSignal.timeout(10000),headers:{Accept:'application/vnd.github+json','User-Agent':'repoctl-isolated-enrollment','X-GitHub-Api-Version':'2026-03-10',...options.headers}});
+  const r=await fetcher(`https://api.github.com${path}`,{...options,redirect:'manual',signal:AbortSignal.timeout(10000),headers:{Accept:'application/vnd.github+json','User-Agent':'repoctl-isolated-enrollment','X-GitHub-Api-Version':'2026-03-10',...options.headers}});
   if(!r.ok)throw Error('GitHub enrollment request rejected');
   const reader=r.body?.getReader();if(!reader)throw Error('Empty GitHub enrollment response');let size=0;const chunks=[];
   while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>65536){await reader.cancel();throw Error('Oversized GitHub enrollment response');}chunks.push(value);}

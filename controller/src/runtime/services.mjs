@@ -6,7 +6,7 @@ const hash=/^[a-f0-9]{64}$/,sha=/^[a-f0-9]{40}$/;
 // Binding identity is infrastructure-controlled. Requests cannot select a URL.
 export async function boundJSON(binding,path,body) {
  if(typeof binding?.fetch!=='function')throw Error('Required remote service unavailable');
- const response=await binding.fetch(`https://internal${path}`,{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const response=await binding.fetch(`https://internal${path}`,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  if(!response.ok)throw Error('Remote service denied request');
  const reader=response.body?.getReader();if(!reader)throw Error('Empty remote response');
  let size=0;const chunks=[];
@@ -54,7 +54,7 @@ export function runtimeServices(env,operations,custody,record,operationID,fetche
    // V1 personal profile is public. No writer credential is used for observation.
    const base=`https://api.github.com/repos/${record.intent.repository}`;
    async function get(path){
-    const response=await fetcher(base+path,{redirect:'error',signal:AbortSignal.timeout(10000),headers:{Accept:'application/vnd.github+json','User-Agent':'repoctl-independent-observer','X-GitHub-Api-Version':'2026-03-10'}});
+    const response=await fetcher(base+path,{redirect:'manual',signal:AbortSignal.timeout(10000),headers:{Accept:'application/vnd.github+json','User-Agent':'repoctl-independent-observer','X-GitHub-Api-Version':'2026-03-10'}});
     if(!response.ok)throw Error('GitHub observation failed');const text=await response.text();if(text.length>65536)throw Error('GitHub observation too large');return JSON.parse(text);
    }
    if((await get('')).id!==repositoryID)throw Error('Repository identity changed');
