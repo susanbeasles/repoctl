@@ -1,5 +1,6 @@
 import {WorkerEntrypoint} from 'cloudflare:workers';
 import {archiveEvidenceService} from './service.mjs';
+import {recoveryPublication} from './publication.mjs';
 const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 async function configurations(raw){
  const list=JSON.parse(raw);if(!Array.isArray(list)||!list.length||list.length>100)throw Error('Invalid archive configuration');
@@ -28,3 +29,18 @@ export class ArchiveEvidenceService extends WorkerEntrypoint{
  }
 }
 export default {fetch(){return new Response('Not found',{status:404,headers});}};
+
+// Separate named entrypoint: bind only to the trusted recovery upload gateway.
+export class RecoveryPublicationService extends WorkerEntrypoint {
+ async fetch(request){
+  if(request.method!=='POST'||new URL(request.url).pathname!=='/v1/archive/recovery/publish')return Response.json({error:'not_found'},{status:404,headers});
+  if(this.env.RECOVERY_PUBLICATION_ENABLED!=='true'||typeof this.env.ARCHIVE_EVIDENCE_CONFIG_JSON!=='string'||typeof this.env.RECOVERY_REPORTS?.put!=='function')return Response.json({error:'publication_not_configured'},{status:503,headers});
+  try{
+   const reader=request.body?.getReader();if(!reader)throw Error('Missing body');const chunks=[];let size=0;
+   for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>4*1024*1024){await reader.cancel();throw Error('Oversized publication');}chunks.push(value);}
+   const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
+   const body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+   return Response.json(await recoveryPublication({bucket:this.env.RECOVERY_REPORTS,configurations:await configurations(this.env.ARCHIVE_EVIDENCE_CONFIG_JSON)}).publish(body),{headers});
+  }catch{return Response.json({error:'recovery_publication_denied'},{status:403,headers});}
+ }
+}

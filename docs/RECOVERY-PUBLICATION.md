@@ -23,3 +23,22 @@ requires an authenticated upload bridge or a native storage adapter; the module
 does not magically provide a bucket binding to a Node process. The remote archive
 reader must trust only enrolled recovery signatures, not an uploader identity
 alone. Live bucket qualification is still pending.
+
+## Private publication service
+
+The named `RecoveryPublicationService` entrypoint exposes POST
+`/v1/archive/recovery/publish` over an installed service binding. Body:
+`{ "intent": ..., "envelope": ... }`. It shares the archive reader's installed
+repository/policy/public-key configuration. `RECOVERY_PUBLICATION_ENABLED`
+defaults to false; it must be enabled separately from archive evidence reads.
+Public default fetch still returns 404.
+
+The service validates the signed report before any R2 mutation, derives the
+storage key internally, conditionally publishes, and revalidates retained
+content before returning a nonsecret receipt. Unknown fields, unsigned reports,
+foreign repositories and invalid lifetimes fail closed. Input is bounded to
+4 MiB; errors are sanitized and responses use no-store headers.
+
+Bind this entrypoint only to the dedicated recovery gateway, never the promotion
+executor. A public OIDC-authenticated gateway is not included in this increment.
+There is still no network upload route accessible to a local recovery process.
