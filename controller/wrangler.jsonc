@@ -1,0 +1,9 @@
+{
+  "name": "repoctl-controller",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-10-04",
+  "workers_dev": false,
+  "durable_objects": {"bindings": [{"name": "REPOSITORY_COORDINATOR", "class_name": "RepositoryCoordinator"}]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["RepositoryCoordinator"]}],
+  "r2_buckets": [{"binding": "ARCHIVE", "bucket_name": "repoctl-archive"}]
+}
