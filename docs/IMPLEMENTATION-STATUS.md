@@ -134,3 +134,7 @@ production assurances. The private service and broker remain disabled.
 ## Remote App vault increment
 
 Encrypted App credential adapter added with staged activation, fixed JWT signing, retirement tombstones and additive KEK rotation. Full controller suite: 61 tests pass. See APP-CREDENTIAL-CUSTODY.md for the remaining enrollment and deployment gates. No live enrollment or deployment performed.
+
+## Repeatable native runtime qualification (October 7, 2026)
+
+`cd controller && npm run check:runtime` now builds the ten checked-in service configurations and executes all twelve existing local workerd qualifiers. The observed Mac run passed actual SQLite transactions/replay alarms, private RPC isolation, policy revocation, staged enrollment restart recovery, R2 checkpoints and signed receipt recovery after lost responses. Provider responses and hardware attestations remain synthetic test adapters. These results do not qualify production enrollment, remote custody hardware guarantees or the still-unimplemented everyday CLI. The runner isolates its home/credentials, never deploys, stops on failure and removes only its own temporary files.

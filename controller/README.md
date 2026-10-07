@@ -13,13 +13,15 @@ promotion. Event receipts are observations, not signed authorization receipts.
 
 ```sh
 cd controller
+npm ci --ignore-scripts --no-audit --no-fund
 npm test
+npm run check:runtime
 ```
 
 Node 22+ is required for tests. Production uses Cloudflare's Web Crypto runtime.
-There are no test/runtime npm dependencies in this increment. Wrangler deployment
-requires a separately selected and pinned tool version; no account was deployed.
-Tests exercise cryptography and mocked storage, not a deployed Cloudflare runtime.
+Wrangler is pinned in the controller lockfile. Its Miniflare dependency uses a scoped Sharp 0.35.5 override for [GHSA-wq5f-xc86-pv6w](https://github.com/advisories/GHSA-wq5f-xc86-pv6w); the updated audit reports zero findings. `npm test` exercises cryptography and mocked storage. `check:runtime` builds ten checked-in deployment bundles with Wrangler dry-run and executes twelve existing workerd qualifiers against real SQLite/R2 runtime interfaces. It checks private entrypoints, replay reservations, enrollment recovery, signed checkpoint/receipt recovery and policy admission. Child processes use an isolated home and do not inherit provider credentials or Node injection settings; only newly created temporary artifacts are removed. No provider deployment or live GitHub qualification is performed. A failing bundle or qualifier stops the command.
+
+On October 7, 2026, all ten bundles and twelve runtime qualifiers passed on the operator's Mac. Public ingress remains closed and rollout flags remain disabled. The everyday CLI and live hardware/provider onboarding remain separate incomplete requirements.
 
 ## Provisioning prerequisites
 
