@@ -74,3 +74,18 @@ test('linked common directories and symlinked object stores cannot supply source
   await assert.rejects(candidatePreparation({sourceGitDirectory:join(f.source,'.git'),gitExecutable:'/usr/bin/git',repositoryID:7}),/complete independent/);
  }finally{await rm(f.root,{recursive:true,force:true});}
 });
+
+test('preparation fixes primitive intent before asynchronous filesystem observations',async()=>{
+ const f=await fixture();try{
+  const submitted={...f.intent},output=join(f.root,'snapshot');
+  const pending=f.builder.prepare(submitted,output);
+  submitted.repositoryID=8;submitted.baseSHA=f.ancestor;
+  const result=await pending;
+  assert.equal(result.repositoryID,7);assert.equal(result.baseSHA,f.baseSHA);
+  const retained=JSON.parse(await readFile(join(output,'preparation.json'),'utf8'));
+  assert.equal(retained.repositoryID,7);assert.equal(retained.baseSHA,f.baseSHA);
+  const malformed=join(f.root,'coercible');
+  await assert.rejects(f.builder.prepare({...f.intent,sourceSHA:{toString:()=>f.sourceSHA}},malformed),/Invalid/);
+  await assert.rejects(access(malformed));
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});

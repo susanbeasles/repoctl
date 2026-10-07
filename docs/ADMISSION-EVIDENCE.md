@@ -45,3 +45,29 @@ Those must use retained authority state and distinguish pre-write checks from po
 reconciliation. Binding the broker directly to this entrypoint fails closed.
 Independent checkpoint hosting, hardware trust, archive recovery and live qualification
 remain mandatory before credential issuance.
+
+## Mandatory remote baseline
+
+Admission now requires an installed baseline verifier in addition to independent
+GitHub/history/archive and designated signer evidence. Before collecting those
+components and again before confirming admission, it binds repository ID,
+accepted policy revision/digest, protected target and base SHA to remote verification
+with verified:true and drift:false. The verifier must independently compare live
+effective provider controls against the accepted enrolled baseline for that exact
+current policy; caller booleans or local doctor output are not substitutes.
+
+Private `EVIDENCE_BASELINE` calls `/v1/baseline/verify` with `{binding}`. Missing
+binding denies the Worker before downstream calls. The typed verification boundary
+has a maximum10s timeout, propagates an abort signal and suppresses capability
+error contents. Service transport must honor cancellation; observation timeout
+does not prove remote work stopped. No baseline service or production trust is
+commissioned here. Missing/foreign/drifted/revoked/unavailable baseline must deny.
+
+Existing exact-byte approvals and v1 evidence report bytes remain unchanged;
+this is a mandatory prerequisite, not a reinterpretation of their signatures.
+Tests prove absent verifier rejection, wrong policy revision and drift denial
+before component collection, mid-collection drift denial and100ms stalled adapter
+abortion with no provider evidence calls. Actual workerd covers absent private
+baseline binding separately from absent designated signer binding.
+
+The typed [configuration observer](BASELINE-OBSERVATION.md) now implements complete enrolled control comparisons. Its configurationVerified report intentionally cannot satisfy this gate alone; independently accepted enrollment and effective enforcement remain required.

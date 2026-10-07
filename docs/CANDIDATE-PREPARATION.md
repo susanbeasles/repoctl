@@ -41,3 +41,5 @@ fresh integration generation, approved validation, authenticated operator
 transport and native `submit` integration. Existing candidate/history/evidence
 verifiers remain mandatory downstream; the preparation report does not replace
 them or the native GitHub approval/fast-forward qualification.
+
+Preparation captures an immutable typed snapshot of repository ID and primitive source/base SHA strings before filesystem awaits. Caller mutation cannot change the packed source, replay base or retained manifest; coercible objects are rejected before creating output. The native Git regression exercises these boundaries against actual packed objects.

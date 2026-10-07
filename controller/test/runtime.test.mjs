@@ -70,7 +70,7 @@ test('Worker routes connect durable broker, signed OIDC, remote services and ind
  };
  const original=globalThis.fetch;globalThis.fetch=transport;
  try{await execute({operationID:id,controller:'https://controller.example/',oidcURL:'https://run.actions.githubusercontent.com/token',oidcBearer:'request-token',audiencePrefix:'repoctl'},transport,()=>current);}finally{globalThis.fetch=original;}
- assert.equal(writes,1);assert.equal(revokes,2);assert.deepEqual(checks,['/v1/evidence/authorization','/v1/evidence/completion']);assert.equal((await durableOperations(db).readLease(id)).state,'completed');assert.equal((await db.get(`custody:${id}`)).state,'revoked');
+ assert.equal(writes,1);assert.equal(revokes,2);assert.deepEqual(checks,['/v1/evidence/authorization','/v1/evidence/authorization','/v1/evidence/completion']);assert.equal((await durableOperations(db).readLease(id)).state,'completed');assert.equal((await db.get(`custody:${id}`)).state,'revoked');
  let replay;globalThis.fetch=transport;try{replay=await coordinator.fetch(new Request('https://internal/v1/execution/lease',{method:'POST',body:JSON.stringify({operationID:id,oidcToken:await oidc()})}));}finally{globalThis.fetch=original;}assert.equal(replay.status,403);
  assert.equal(JSON.stringify([...await db.list({prefix:''})]).includes('PRIVATE-RUNTIME-TOKEN'),false);
 });

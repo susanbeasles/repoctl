@@ -51,3 +51,40 @@ test('intent fields must be primitive strings before any provider request',async
  for(const field of Object.keys(intent))await assert.rejects(api.publish({...intent,[field]:{toString:()=>intent[field]}}),/Invalid integration generation intent/);
  assert.equal(reads,0);assert.equal(f.writes(),0);assert.equal(f.journal.size,0);
 });
+
+test('installed native publication claims journal before upload and reconciles lost response without resend',async()=>{
+ const f=fixture();let uploaded=false,calls=0,lose=true;
+ const publication={async create(binding,{signal}){
+  calls++;assert.equal(signal.aborted,false);
+  assert.equal(f.journal.get(intent.generationID).phase,'creating');
+  assert.equal(binding.repositoryID,7);assert.equal(binding.ref,'refs/heads/int/'+intent.generationID);
+  const result={ref:binding.ref,object:{type:'commit',sha:binding.commitSHA}};
+  uploaded=true;f.setRef(result);
+  if(lose)throw Error('SECRET-UPLOAD-MARKER');return result;
+ }};
+ const fetcher=async(url,options)=>{
+  if(new URL(url).pathname.endsWith('/git/commits/'+intent.commitSHA)&&!uploaded)return new Response('',{status:404});
+  return f.config.fetcher(url,options);
+ };
+ const api=integrationGeneration({...f.config,publication,fetcher});
+ await assert.rejects(api.publish(intent),error=>error.message.includes('uncertain')&&!error.message.includes('SECRET-UPLOAD-MARKER'));
+ assert.equal(calls,1);assert.equal(f.writes(),0);assert.equal(f.journal.get(intent.generationID).phase,'uncertain');
+ lose=false;assert.equal((await api.publish(intent)).published,true);
+ assert.equal(calls,1);assert.equal(f.writes(),0);assert.equal(f.journal.get(intent.generationID).phase,'confirmed');
+});
+test('native publication cannot start for invalid designated proof or immutable namespace',async()=>{
+ for(const field of ['verifyCandidate','verifyNamespace']){
+  const f=fixture();let calls=0;
+  const api=integrationGeneration({...f.config,publication:{create:async()=>{calls++;throw Error('Unexpected upload');}},[field]:async b=>({...b,verified:false})});
+  await assert.rejects(api.publish(intent));assert.equal(calls,0);assert.equal(f.journal.size,0);
+ }
+});
+
+test('native transfer acknowledgement cannot bypass remote signature readback',async()=>{
+ const f=fixture();let calls=0;
+ const publication={async create(binding){calls++;const result={ref:binding.ref,object:{type:'commit',sha:binding.commitSHA}};f.setRef(result);f.state.wrongCommit=true;return result;}};
+ await assert.rejects(integrationGeneration({...f.config,publication}).publish(intent),/signed history/);
+ assert.equal(calls,1);assert.equal(f.journal.get(intent.generationID).phase,'creating');
+ await assert.rejects(integrationGeneration({...f.config,publication}).publish(intent),/signed history/);
+ assert.equal(calls,1);assert.equal(f.writes(),0);
+});
