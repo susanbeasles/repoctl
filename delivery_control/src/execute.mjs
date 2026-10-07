@@ -20,6 +20,8 @@ export async function execute({operationID,controller,oidcURL,oidcBearer,audienc
   if(commit.sha!==p.commitSHA||commit.parents?.length!==1||commit.parents[0].sha!==p.baseSHA||commit.tree?.sha!==p.treeSHA||commit.verification?.verified!==true)throw Error('Candidate integrity mismatch');
   const tip=await jsonFetch(`${root}/git/ref/heads/${p.branch}`,{headers},fetcher);
   if(tip.object?.sha!==p.baseSHA||grant.operationExpiresAt<=clock())throw Error('Stale or expired promotion');
+  const check=await jsonFetch(new URL('/v1/execution/check',origin),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationID,oidcToken:await jwt()})},fetcher);
+  if(check.operationID!==operationID||check.verified!==true||check.operationExpiresAt!==grant.operationExpiresAt||check.operationExpiresAt<=clock()||!check.intent||Object.keys(check.intent).sort().join()!==Object.keys(p).sort().join()||Object.entries(p).some(([key,value])=>check.intent[key]!==value))throw Error('Fresh execution authority denied or changed');
   outcome='uncertain';
   await jsonFetch(`${root}/git/refs/heads/${p.branch}`,{method:'PATCH',headers,body:JSON.stringify({sha:p.commitSHA,force:false})},fetcher);
   const after=await jsonFetch(`${root}/git/ref/heads/${p.branch}`,{headers},fetcher);

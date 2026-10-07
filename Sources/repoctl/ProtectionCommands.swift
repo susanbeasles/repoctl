@@ -17,10 +17,11 @@ func promotionProtection(ownerID: Int, writerID: Int) -> [[String: Any]] {
     return desired
 }
 func protectionCommand(_ args: [String]) throws {
-    let usage = "repoctl protect plan|apply|verify OWNER/REPO --writer-app SLUG\nPersonal repositories only. Default branch must exist. Main becomes App-only; no human bypass. This command does not deploy or test the promotion service."
+    let usage = "repoctl protect plan|apply|verify OWNER/REPO --writer-app SLUG [--actions-app SLUG]\nPersonal repositories only. Default branch must exist. Main becomes App-only; no human bypass. This command does not deploy or test the promotion service."
     if args == ["protect", "--help"] { print(usage); return }
-    try require(args.count == 5, usage)
+    try require(args.count == 5 || args.count == 7, usage)
     let action = args[1], repo = args[2], slug = args[4]
+    if args.count == 7 { try require(args[5] == "--actions-app" && args[6].range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil, usage) }
     try require(["plan", "apply", "verify"].contains(action) && args[3] == "--writer-app", usage)
     try require(repo.range(of: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", options: .regularExpression) != nil && slug.range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil, "Invalid repository/App slug")
     let client = GitHubClient()
@@ -38,12 +39,10 @@ func protectionCommand(_ args: [String]) throws {
     if action == "plan" {
         print(String(decoding: try JSONSerialization.data(withJSONObject: ["repository": repo, "writer_app": app["slug"] ?? slug, "writer_app_id": writerID, "rulesets": desired, "warning": "Main will reject human updates. App installation/service readiness must be validated before applying. No remote changes made."], options: [.prettyPrinted, .sortedKeys]), as: UTF8.self)); return
     }
-    // Do not rewrite the separately configured Actions actor policy. It may allow
-    // this App, other authorized automation, or owner-only dispatch.
-    let actions = try client.request("repos/\(repo)/actions/permissions") as? [String: Any]
-    try require(actions?["enabled"] as? Bool == true, "Configure Actions before protection")
-    let policies = try actionPolicies(client, repo)
-    try require(policies.contains { $0["name"] as? String == managedActionsName && $0["enforcement"] as? String == "active" }, "Managed Actions policy required")
+    // Validate the exact selected Actions authority before any protection mutations.
+    // No flag means owner-only Actions. Additional automation requires explicit intent.
+    let actionsArgs = ["actions", "verify", repo] + (args.count == 7 ? ["--app", args[6]] : [])
+    try actionsCommand(actionsArgs)
     let inventory = try client.rules(repo)
     let obsolete = inventory.filter { $0["name"] as? String == "repoctl/bootstrap-v1/protected-locked" }
     try require(obsolete.count <= 1, "Duplicate obsolete bootstrap ruleset")
@@ -73,6 +72,7 @@ func protectionCommand(_ args: [String]) throws {
         guard matches.count == 1, let id = matches[0]["id"] as? Int, let actual = try client.request("repos/\(repo)/rulesets/\(id)") as? [String: Any] else { throw Failure("Managed rule missing/duplicated") }
         try require(sameJSON(normalizedRule(actual), rule), "Protection drift detected: \(rule["name"] ?? "")")
     }
+    try actionsCommand(actionsArgs) // Recheck authority before releasing the bootstrap lock.
     // Remove the all-writers lock only after the replacement constraints verify.
     if action == "apply", let old = obsolete.first, let id = old["id"] as? Int { _ = try client.request("repos/\(repo)/rulesets/\(id)", method: "DELETE") }
     let finalRules = try client.rules(repo)
