@@ -1,45 +1,5 @@
 import Foundation
 
-// Authentication remains in the user's selected gh account; never print tokens.
-struct GitHubClient {
-    func request(_ path: String, method: String = "GET", body: Any? = nil) throws -> Any {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        var args = ["gh", "api", "--hostname", "github.com", "--method", method,
-                    "-H", "X-GitHub-Api-Version: 2026-03-10", path]
-        let input = Pipe()
-        if body != nil { args += ["--input", "-"] }
-        process.arguments = args
-        process.standardInput = input
-        // File-backed output avoids pipe-buffer deadlock on large rule inventories.
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
-                                               attributes: [.posixPermissions: 0o700])
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let outURL = directory.appendingPathComponent("out"), errURL = directory.appendingPathComponent("err")
-        FileManager.default.createFile(atPath: outURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
-        FileManager.default.createFile(atPath: errURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
-        let outHandle = try FileHandle(forWritingTo: outURL), errHandle = try FileHandle(forWritingTo: errURL)
-        defer { try? outHandle.close(); try? errHandle.close() }
-        process.standardOutput = outHandle; process.standardError = errHandle
-        try process.run()
-        if let body { input.fileHandleForWriting.write(try JSONSerialization.data(withJSONObject: body)) }
-        try input.fileHandleForWriting.close()
-        process.waitUntilExit()
-        try require(process.terminationStatus == 0,
-                    "GitHub request failed: \(method) \(path); run gh auth status and verify repository administration permission (exit \(process.terminationStatus))")
-        let data = try Data(contentsOf: outURL)
-        return data.isEmpty ? [:] : try JSONSerialization.jsonObject(with: data)
-    }
-    func rules(_ repo: String) throws -> [[String: Any]] {
-        var result: [[String: Any]] = [], page = 1
-        while true {
-            guard let items = try request("repos/\(repo)/rulesets?per_page=100&page=\(page)&includes_parents=true") as? [[String: Any]] else { throw Failure("Invalid ruleset list") }
-            result += items
-            if items.count < 100 { return result }; page += 1
-        }
-    }
-}
 func normalizedRule(_ rule: [String: Any]) -> [String: Any] {
     var result: [String: Any] = [:]
     for key in ["name", "target", "enforcement", "conditions", "rules", "bypass_actors"] { result[key] = rule[key] }

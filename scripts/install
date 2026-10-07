@@ -1,8 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-./scripts/build
-app=dist/Repoctl.app
+[[ $# -le 1 ]] || { echo 'Usage: scripts/install [NEW_OUTPUT_DIRECTORY]' >&2; exit 1; }
+output=${1:-dist}
+./scripts/build "$output"
+app="$output/Repoctl.app"
 if [[ -n ${REPOCTL_SIGNING_IDENTITY:-} ]]; then
   codesign --verify --strict --verbose=2 "$app"
 fi

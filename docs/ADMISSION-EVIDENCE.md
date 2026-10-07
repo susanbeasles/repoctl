@@ -6,6 +6,11 @@ checks the exact approved intent and recomputes component report digests. All th
 components must match the proposal. It rereads accepted policy and checks expiry
 before returning the authority's `verified: true` admission response.
 
+Candidate evidence additionally requires the private `EVIDENCE_SIGNATURES`
+designated-signer service described in [GitHub evidence](GITHUB-EVIDENCE.md).
+Admission refuses missing, foreign, revoked or unavailable verification even
+when GitHub reports a valid signature. Production commissioning remains required.
+
 The stable report contains protocol `repoctl-admission-evidence-v1`, repositoryID,
 policyDigest, githubDigest, historyDigest and archiveDigest. Its canonical SHA-256
 becomes the intent's evidenceDigest before signing. Nonce, expiry and evidenceDigest
@@ -20,6 +25,7 @@ Public ingress returns 404, workers.dev is disabled, admission starts disabled.
 | EVIDENCE_POLICY | AcceptedPolicyService `/v1/policy/current` |
 | EVIDENCE_HISTORY | Private anchored history `/v1/evidence/history` |
 | EVIDENCE_ARCHIVES | Private recovery verifier `/v1/evidence/archive` |
+| EVIDENCE_SIGNATURES | Designated candidate and current role verifier `/v1/candidate/verify` |
 
 EVIDENCE_CONFIG_JSON is an array of records with exactly repositoryID, repository,
 targetRef, policyDigest, requiredChecks and actorIDs. requiredChecks uses the GitHub

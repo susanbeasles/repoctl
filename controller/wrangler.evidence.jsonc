@@ -1,1 +1,1 @@
-{"name":"repoctl-admission-evidence","main":"src/evidence/entrypoint.mjs","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"EVIDENCE_ENABLED":"false"}}
+{"name":"repoctl-admission-evidence","main":"src/evidence/entrypoint.ts","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"EVIDENCE_ENABLED":"false"}}

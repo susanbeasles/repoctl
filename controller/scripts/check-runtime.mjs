@@ -30,7 +30,7 @@ try{
  const checks=[['app-vault'],['authority','authority'],['broker'],['checkpoint','checkpoint'],
   ['completion','observation','broker'],['enrollment-approval','enrollment-approval'],
   ['enrollment','signer'],['evidence','evidence'],['policy','policy'],
-  ['receipts','receipts','checkpoint'],['registration','registration'],['signer','signer']];
+  ['receipts','receipts','checkpoint'],['registration','registration'],['signer','signer'],['generation']];
  for(const [name,...roles] of checks){
   console.log(`QUALIFY ${name}`);
   await run([`scripts/qualify-${name}-local.mjs`,...roles.map(role=>bundles.get(role))]);
