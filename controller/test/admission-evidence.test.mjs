@@ -21,6 +21,13 @@ async function fixture(){
 test('admission requires independent approvals and all three exact evidence bodies',async()=>{
  const f=await fixture();const result=await admissionEvidence(f.services).verify(f.request);assert.equal(result.verified,true);assert.equal(result.intentDigest,await digest(f.request.intent));
 });
+test('unsigned proposal inspection derives the existing evidence digest without granting approval',async()=>{
+ const f=await fixture(),service=admissionEvidence(f.services);assert.equal(typeof service.inspect,'function');
+ const inspected=await service.inspect({...f.request.intent,evidenceDigest:'0'.repeat(64)});
+ assert.equal(inspected.evidenceDigest,f.request.intent.evidenceDigest);assert.equal(inspected.verified,undefined);
+ await assert.rejects(service.verify({operationID:hash,repositoryID:1,intent:{...f.request.intent,evidenceDigest:inspected.evidenceDigest}}));
+ f.r.recoveryVerified=false;await assert.rejects(service.inspect(f.request.intent));
+});
 test('missing or foreign archive/history/CI evidence cannot authorize',async()=>{
  for(const mutate of [f=>f.r.recoveryVerified=false,f=>f.r.intent.sourceSHA=a,f=>f.h.historyVerified=false,f=>f.g.githubVerified=false,f=>f.r.objects=[],f=>f.g.digest=hash,f=>f.request.intent.commitSHA=c,f=>f.request.operationID='b'.repeat(64)]){
  const f=await fixture();mutate(f);await assert.rejects(admissionEvidence(f.services).verify(f.request));}

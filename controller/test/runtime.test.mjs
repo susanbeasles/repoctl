@@ -34,7 +34,9 @@ test('credential journal failure revokes token and exposes no successful grant',
  let revoked=0;const credentials=journaledCredentials({issueInstallationToken:async()=>({token:'PRIVATE-TOKEN',expiresAt:2000}),revoke:async()=>revoked++},{stage:async()=>{throw Error('storage unavailable');}},id);await assert.rejects(credentials.issueInstallationToken({}));assert.equal(revoked,1);
 });
 test('public execution routes are disabled without every required remote binding',async()=>{
- const response=await worker.fetch(new Request('https://controller.test/v1/execution/lease',{method:'POST',body:'{}'}),{BROKER_ENABLED:'true'});assert.equal(response.status,503);assert.equal(response.headers.get('cache-control'),'no-store');const c=new BrokerCoordinator({storage:storage()},{});assert.equal((await c.fetch(new Request('https://internal/v1/execution/lease',{method:'POST',body:'{}'}))).status,503);
+ for(const path of ['lease','check','complete']){
+ const response=await worker.fetch(new Request(`https://controller.test/v1/execution/${path}`,{method:'POST',body:'{}'}),{BROKER_ENABLED:'true'});assert.equal(response.status,503);assert.equal(response.headers.get('cache-control'),'no-store');const c=new BrokerCoordinator({storage:storage()},{});assert.equal((await c.fetch(new Request(`https://internal/v1/execution/${path}`,{method:'POST',body:'{}'}))).status,503);
+ }
 });
 test('alarm revokes orphaned credentials after restart without reopening authority',async()=>{
  const db=storage(),ops=durableOperations(db,()=>now),r=record(id);r.trust={appID:1,installationID:2,repositoryIDs:[7]};await ops.retain(r);await ops.reserve({...lease(id),expiresAt:now+1});await ops.issued({...lease(id),expiresAt:now+1,state:'issued'});
@@ -43,15 +45,16 @@ test('alarm revokes orphaned credentials after restart without reopening authori
  assert.equal(revoked,1);assert.equal((await ops.readLease(id)).state,'uncertain');assert.equal(await vault.read(id),undefined);await assert.rejects(ops.reserve(lease(id)));
 });
 import {execute} from '../../delivery_control/src/execute.mjs';
-test('Worker routes connect durable broker, signed OIDC, remote services and independent completion',async()=>{
+test('Worker routes connect durable broker, signed OIDC, fresh authority checks and independent completion',async t=>{
+ for(const revokedAfterLease of [false,true])await t.test(revokedAfterLease?'current authority revocation prevents the write':'live authority permits exactly one write',async()=>{
  const current=Math.floor(Date.now()/1000),db=storage(),kek=key();
  const pair=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);const publicKey=await crypto.subtle.exportKey('jwk',pair.publicKey);publicKey.kid='runtime';
  const sha=c=>c.repeat(40),trust={appID:1,installationID:2,repositoryIDs:[7],acceptedPolicyRevision:1,acceptedPolicyDigest:'b'.repeat(64),targetRef:'refs/heads/main',audiencePrefix:'repoctl',repository:'owner/delivery_control',repositoryID:10,ownerID:20,ref:'refs/heads/main',workflowRef:'owner/delivery_control/.github/workflows/promote.yml@refs/heads/main',workflowSHA:sha('a'),jobWorkflowRef:'owner/delivery_control/.github/workflows/executor.yml@refs/heads/main',jobWorkflowSHA:sha('a'),eventNames:['workflow_dispatch'],actorIDs:[30]};
  const operation={id,state:'authorized',operation:'promote',expiresAt:current+200,authorizationProvider:'hardware',hardwareEnrollmentVerified:true,policyRevision:1,policyDigest:trust.acceptedPolicyDigest,targetRef:trust.targetRef,repositoryID:7,runID:60,runAttempt:1};const intent={repository:'owner/project',repositoryID:7,branch:'main',baseSHA:sha('b'),commitSHA:sha('c'),treeSHA:sha('d')};
- let writes=0,revokes=0,tip=intent.baseSHA,checks=[],count=0;
+ let writes=0,revokes=0,tip=intent.baseSHA,checks=[],count=0,authorityChecks=0,issued=0;
  const binding=fn=>({fetch:async(url,options)=>Response.json(await fn(new URL(url).pathname,JSON.parse(options.body)))});
  const env={BROKER_ENABLED:'true',TOKEN_KEYRING_JSON:JSON.stringify({active:'one',keys:{one:kek}}),
- BROKER_AUTHORITY:binding((path,input)=>{assert.equal(input.operationID,id);return path.endsWith('/load')?{operation,intent,trust}:{operationID:id,accepted:true};}),
+ BROKER_AUTHORITY:binding((path,input)=>{assert.equal(input.operationID,id);if(path.endsWith('/load'))return {operation,intent,trust};authorityChecks++;return {operationID:id,accepted:!(revokedAfterLease&&authorityChecks>1)};}),
  BROKER_VERIFIER:binding((path,input)=>{checks.push(path);assert.deepEqual(input.intent,intent);return {operationID:id,verified:true};}),
  BROKER_SIGNER:binding((path,input)=>{assert.equal(path,'/v1/github/app-jwt');assert.equal(input.appID,1);return {jwt:'server.only.jwt'};}),
  BROKER_RECEIPTS:binding(()=>({operationID:id,digest:'e'.repeat(64)}))};
@@ -61,7 +64,7 @@ test('Worker routes connect durable broker, signed OIDC, remote services and ind
   url=String(url);if(url.includes('run.actions.githubusercontent.com'))return Response.json({value:await oidc()});
   if(url.startsWith('https://controller.example/'))return worker.fetch(new Request(url,options),env);
   if(url==='https://token.actions.githubusercontent.com/.well-known/jwks')return Response.json({keys:[publicKey]});
-  if(url.endsWith('/access_tokens'))return Response.json({token:'PRIVATE-RUNTIME-TOKEN',expires_at:new Date((current+3600)*1000).toISOString(),repositories:[{id:7}],permissions:{contents:'write'}});
+  if(url.endsWith('/access_tokens')){issued++;return Response.json({token:'PRIVATE-RUNTIME-TOKEN',expires_at:new Date((current+3600)*1000).toISOString(),repositories:[{id:7}],permissions:{contents:'write'}});}
   if(url.endsWith('/installation/token')){revokes++;return new Response(null,{status:204});}
   if(url.endsWith('/repos/owner/project'))return Response.json({id:7});
   if(url.includes('/git/commits/'))return Response.json({sha:intent.commitSHA,parents:[{sha:intent.baseSHA}],tree:{sha:intent.treeSHA},verification:{verified:true}});
@@ -69,10 +72,11 @@ test('Worker routes connect durable broker, signed OIDC, remote services and ind
   return Response.json({object:{sha:tip}});
  };
  const original=globalThis.fetch;globalThis.fetch=transport;
- try{await execute({operationID:id,controller:'https://controller.example/',oidcURL:'https://run.actions.githubusercontent.com/token',oidcBearer:'request-token',audiencePrefix:'repoctl'},transport,()=>current);}finally{globalThis.fetch=original;}
- assert.equal(writes,1);assert.equal(revokes,2);assert.deepEqual(checks,['/v1/evidence/authorization','/v1/evidence/completion']);assert.equal((await durableOperations(db).readLease(id)).state,'completed');assert.equal((await db.get(`custody:${id}`)).state,'revoked');
+ try{const execution=execute({operationID:id,controller:'https://controller.example/',oidcURL:'https://run.actions.githubusercontent.com/token',oidcBearer:'request-token',audiencePrefix:'repoctl'},transport,()=>current);if(revokedAfterLease)await assert.rejects(execution,/HTTP 403/);else await execution;}finally{globalThis.fetch=original;}
+ assert.equal(writes,revokedAfterLease?0:1);assert.equal(issued,1);assert.equal(revokes,2);assert.equal(authorityChecks,2);assert.equal(count,3);assert.deepEqual(checks,revokedAfterLease?['/v1/evidence/authorization']:['/v1/evidence/authorization','/v1/evidence/authorization','/v1/evidence/completion']);assert.equal((await durableOperations(db).readLease(id)).state,revokedAfterLease?'uncertain':'completed');assert.equal((await db.get(`custody:${id}`)).state,'revoked');
  let replay;globalThis.fetch=transport;try{replay=await coordinator.fetch(new Request('https://internal/v1/execution/lease',{method:'POST',body:JSON.stringify({operationID:id,oidcToken:await oidc()})}));}finally{globalThis.fetch=original;}assert.equal(replay.status,403);
  assert.equal(JSON.stringify([...await db.list({prefix:''})]).includes('PRIVATE-RUNTIME-TOKEN'),false);
+ });
 });
 
 test('lease observation is private, read-only and does not wait on execution queue',async()=>{

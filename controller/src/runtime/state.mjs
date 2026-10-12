@@ -45,6 +45,15 @@ export function durableOperations(storage,clock=()=>Math.floor(Date.now()/1000))
     await tx.put(k,{...old,...lease});
    });
   },
+  async consumeCheck(input){
+   if(typeof input.jti!=='string'||input.jti.length<8||input.jti.length>200||input.jti===input.leaseJTI)throw Error('Invalid check identity');
+   await storage.transaction(async tx=>{
+    const record=await tx.get(key(input.operationID)),lease=await tx.get(leaseKey(input.operationID)),now=clock();
+    if(!record||record.operation.state!=='authorized'||record.operation.expiresAt<=now||!lease||lease.state!=='issued'||lease.operationID!==input.operationID||lease.jti!==input.leaseJTI||lease.runID!==input.runID||lease.runAttempt!==input.runAttempt||record.operation.runID!==Number(input.runID)||record.operation.runAttempt!==Number(input.runAttempt)||lease.expiresAt!==input.expiresAt||lease.expiresAt<=now||lease.providerExpiresAt<=now)throw Error('Execution lease changed or expired');
+    const jk=`jti:${input.jti}`;if(await tx.get(jk))throw Error('OIDC token replay');
+    await tx.put(jk,{operationID:input.operationID,expiresAt:lease.expiresAt});
+   });
+  },
   markUncertain:id=>update(id,['issuing','issued','uncertain'],'uncertain'),
   uncertain:id=>update(id,['issuing','issued','uncertain'],'uncertain'),
   degraded:id=>update(id,['issuing','issued','uncertain','completed','degraded'],'degraded'),

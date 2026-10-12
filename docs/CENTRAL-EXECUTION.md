@@ -17,7 +17,8 @@ serialization and authorization mechanism.
 The executor checks out ONLY delivery_control at the workflow run's SHA. Its
 built-ins-only script requests GitHub OIDC with an operation-specific audience,
 receives a no-store controller lease, checks numeric target identity and the signed
-single-parent candidate/tree, then makes one non-forced ref update. It reads the
+single-parent candidate/tree, requests fresh OIDC for a pre-write authority check,
+then makes one non-forced ref update. It reads the
 ref back, revokes the installation token and reports a sanitized outcome. A lost
 write response produces uncertain state, never an automatic second write.
 
@@ -56,11 +57,20 @@ its caller context; only delivery_control is accepted as a privileged executor.
 
 ## HTTP handoff
 
-The new executionRequest handler implements POST /v1/execution/lease and
-POST /v1/execution/complete with bounded bodies, strict input fields, no-store
-responses and sanitized errors. It is NOT wired into the public receipt Worker.
-Connecting it requires the production service adapters below. No route is enabled
-with test adapters or unconditional approval.
+The executionRequest handler implements POST /v1/execution/lease,
+POST /v1/execution/check and POST /v1/execution/complete with bounded bodies,
+strict input fields, no-store responses and sanitized errors. The Worker routes
+these requests through the serialized BrokerCoordinator only when BROKER_ENABLED
+and all required production bindings are configured. The checked-in configuration
+keeps the broker disabled.
+
+The check route requires a fresh pinned executor OIDC token and the same live
+issued lease, then repeats current authority and independent candidate/base
+verification. It returns the exact retained intent and original lease expiry,
+without issuing or extending credentials. Successful check JTIs are retained to
+reject replay across restarts. Expiry is checked again after asynchronous
+verification. This check and GitHub's ref update are separate operations; it does
+not provide an atomic policy/ref compare-and-swap.
 
 - serialize: durable per-operation/per-repository serialization, not a Promise
   callback without persistent leases.
