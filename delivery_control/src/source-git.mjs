@@ -1,3 +1,4 @@
+import {isIntegrationRef} from './integration-ref.mjs';
 import {spawn} from 'node:child_process';
 import {readFile,realpath,stat} from 'node:fs/promises';
 import {isAbsolute} from 'node:path';
@@ -33,9 +34,15 @@ export function createNormalGitTransport({config,run=runBounded,clock=()=>Math.f
  return Object.freeze({
   async putObject(type,bytes){check(['commit','tag'].includes(type)&&typeof bytes==='string'&&Buffer.byteLength(bytes)>0&&Buffer.byteLength(bytes)<=65536&&!bytes.includes('\0'));const result=(await execute(['hash-object','-w','-t',type,'--stdin'],{input:bytes})).toString('utf8').trim();check(SHA.test(result));return result;},
   async readObject(type,id){check(['commit','tag'].includes(type)&&SHA.test(id));return (await execute(['cat-file',type,id])).toString('utf8');},
+  async pushDeleteOnly(input){
+   check(input&&Object.keys(input).sort().join()==='expectedSHA,expiresAt,ref,repository,repositoryID,token'&&input.repository===config.repository&&input.repositoryID===config.repositoryID&&isIntegrationRef(input.ref)&&SHA.test(input.expectedSHA)&&typeof input.token==='string'&&input.token.length>0&&input.token.length<=8192&&!/[\s\0]/.test(input.token)&&Number.isSafeInteger(input.expiresAt)&&input.expiresAt>clock()&&input.expiresAt<=clock()+300);
+   const path=await installed(),env={...environment,GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:`http.${remote}.extraheader`,GIT_CONFIG_VALUE_0:'Authorization: Basic '+Buffer.from('x-access-token:'+input.token).toString('base64')};
+   check(input.expiresAt>clock());
+   try{await run(path,[...prefix,'push','--porcelain','--no-follow-tags',`--force-with-lease=${input.ref}:${input.expectedSHA}`,remote,`:${input.ref}`],{cwd:config.gitDirectory,env,timeoutMs:30000,maxOutputBytes:65536});}catch{throw Error('Conditional integration deletion outcome uncertain');}
+  },
   async pushCreateOnly(input){
    check(input&&Object.keys(input).sort().join()==='expiresAt,objectSHA,ref,repository,repositoryID,token'&&input.repository===config.repository&&input.repositoryID===config.repositoryID&&SHA.test(input.objectSHA)&&typeof input.token==='string'&&input.token.length>0&&input.token.length<=8192&&!/[\s\0]/.test(input.token)&&Number.isSafeInteger(input.expiresAt)&&input.expiresAt>clock()&&input.expiresAt<=clock()+300);
-   const match=/^refs\/(?:heads\/promotion\/([1-9][0-9]*)\/shadow|tags\/promotion\/([1-9][0-9]*)\/(?:source|main))$/.exec(input.ref);check(match&&Number.isSafeInteger(Number(match[1]??match[2])));
+   const match=/^refs\/tags\/promotion\/([1-9][0-9]*)\/(?:source|main)$/.exec(input.ref);check(isIntegrationRef(input.ref)||(match&&Number.isSafeInteger(Number(match[1]))));
    const path=await installed(),type=(await run(path,[...prefix,'cat-file','-t',input.objectSHA],{cwd:config.gitDirectory,env:environment})).toString('utf8').trim();check(type===(input.ref.startsWith('refs/tags/')?'tag':'commit'));
    const env={...environment,GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:`http.${remote}.extraheader`,GIT_CONFIG_VALUE_0:'Authorization: Basic '+Buffer.from('x-access-token:'+input.token).toString('base64')};
    check(input.expiresAt>clock(),'Normal Git publication grant expired');try{await run(path,[...prefix,'push','--porcelain','--no-follow-tags',`--force-with-lease=${input.ref}:`,remote,`${input.objectSHA}:${input.ref}`],{cwd:config.gitDirectory,env,timeoutMs:30000,maxOutputBytes:65536});}catch{throw Error('Normal Git publication outcome uncertain');}

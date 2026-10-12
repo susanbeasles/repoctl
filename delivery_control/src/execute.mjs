@@ -1,8 +1,9 @@
+import {advanceMain as advanceMainWithGit} from './main-git.mjs';
 // Built-ins only. No candidate checkout, package install, shell, or dynamic import.
 const oidcIssuer='https://token.actions.githubusercontent.com';
 const sha=/^[a-f0-9]{40}$/;
 async function jsonFetch(url,options,fetcher){const r=await fetcher(url,{...options,redirect:'error',signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(`Remote operation failed (HTTP ${r.status})`);return r.json();}
-export async function execute({operationID,controller,oidcURL,oidcBearer,audiencePrefix},fetcher=fetch,clock=()=>Math.floor(Date.now()/1000)){
+export async function execute({operationID,controller,oidcURL,oidcBearer,audiencePrefix,advanceMain=advanceMainWithGit},fetcher=fetch,clock=()=>Math.floor(Date.now()/1000)){
  if(!/^[a-f0-9]{64}$/.test(operationID??''))throw Error('Invalid operation identity');
  const origin=new URL(controller);if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw Error('Invalid trusted controller origin');
  const oidc=new URL(oidcURL);if(oidc.protocol!=='https:'||!oidc.hostname.endsWith('.actions.githubusercontent.com')||oidc.username||oidc.password)throw Error('Invalid GitHub OIDC request endpoint');
@@ -12,7 +13,7 @@ export async function execute({operationID,controller,oidcURL,oidcBearer,audienc
  try{
   grant=await jsonFetch(new URL('/v1/execution/lease',origin),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationID,oidcToken:await jwt()})},fetcher);
   const p=grant.intent;
-  if(grant.operationID!==operationID||typeof grant.token!=='string'||!Number.isSafeInteger(grant.operationExpiresAt)||grant.operationExpiresAt<=clock()||!p||!Number.isSafeInteger(p.repositoryID)||!/^[-A-Za-z0-9_.]+\/[-A-Za-z0-9_.]+$/.test(p.repository)||!['main','master'].includes(p.branch)||![p.baseSHA,p.commitSHA,p.treeSHA].every(s=>sha.test(s)))throw Error('Invalid controller lease');
+  if(grant.operationID!==operationID||typeof grant.token!=='string'||!Number.isSafeInteger(grant.operationExpiresAt)||grant.operationExpiresAt<=clock()||!p||!Number.isSafeInteger(p.repositoryID)||!/^[-A-Za-z0-9_.]+\/[-A-Za-z0-9_.]+$/.test(p.repository)||p.branch!=='main'||![p.baseSHA,p.commitSHA,p.treeSHA].every(s=>sha.test(s)))throw Error('Invalid controller lease');
   const root=`https://api.github.com/repos/${p.repository}`;
   const headers={Authorization:`Bearer ${grant.token}`,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2026-03-10','User-Agent':'repoctl-central-executor','Content-Type':'application/json'};
   const metadata=await jsonFetch(root,{headers},fetcher);if(metadata.id!==p.repositoryID||metadata.archived||metadata.fork)throw Error('Repository identity mismatch');
@@ -23,7 +24,7 @@ export async function execute({operationID,controller,oidcURL,oidcBearer,audienc
   const check=await jsonFetch(new URL('/v1/execution/check',origin),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationID,oidcToken:await jwt()})},fetcher);
   if(check.operationID!==operationID||check.verified!==true||check.operationExpiresAt!==grant.operationExpiresAt||check.operationExpiresAt<=clock()||!check.intent||Object.keys(check.intent).sort().join()!==Object.keys(p).sort().join()||Object.entries(p).some(([key,value])=>check.intent[key]!==value))throw Error('Fresh execution authority denied or changed');
   outcome='uncertain';
-  await jsonFetch(`${root}/git/refs/heads/${p.branch}`,{method:'PATCH',headers,body:JSON.stringify({sha:p.commitSHA,force:false})},fetcher);
+  await advanceMain({repository:p.repository,baseSHA:p.baseSHA,commitSHA:p.commitSHA,treeSHA:p.treeSHA,token:grant.token,expiresAt:Math.min(grant.operationExpiresAt,clock()+300)});
   const after=await jsonFetch(`${root}/git/ref/heads/${p.branch}`,{headers},fetcher);
   if(after.object?.sha!==p.commitSHA)throw Error('Ref readback mismatch');
   outcome='updated';

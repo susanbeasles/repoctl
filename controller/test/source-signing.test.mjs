@@ -53,7 +53,7 @@ test('policy-eligible candidate is signed before owner approval; complete tag by
 
 test('durable sequences are unique under concurrency and failed candidates leave permanent gaps',async()=>{
  const f=await fixture();f.setEligible(false);await assert.rejects(f.core.prepare(f.input));f.setEligible(true);
- const values=await Promise.all([f.core.prepare(f.input),f.core.prepare(f.input)]);
+ const values=await Promise.all([f.core.prepare({...f.input,message:'First\n'}),f.core.prepare({...f.input,message:'Second\n'})]);
  assert.deepEqual(values.map(v=>v.sequence).sort(),[2,3]);
 });
 test('main handoff rechecks published source receipt, immutable refs, current hardware and fresh automated gates',async()=>{
@@ -228,11 +228,11 @@ test('private review policy lookup is absent explicitly or binds retained exact 
  const absent=await f.core.prepare(f.input);f.refs.set(absent.shadowRef,absent.finalSignedCommitSHA);
  assert.equal(await f.core.lookupReviewPolicy({repositoryID:7,commitSHA:absent.finalSignedCommitSHA,shadowRef:absent.shadowRef}),null);
  f.config.candidateReviewPolicy={ownerID:42,reviewPolicy:structuredClone(f.config.reviewPolicy),scanPolicy:structuredClone(f.config.scanPolicy),priorJobs:{workflowID:100,workflowPath:'.github/workflows/build.yml',workflowDigest:hash('6'),jobWorkflowRef:'susanbeasles/workflow_depot/.github/workflows/orchestration.yml@'+sha('7'),jobWorkflowSHA:sha('7'),actorIDs:[21],requiredJobNames:['tests','scans'],scanJobName:'scans',maxAgeSeconds:300},applicablePolicy:{languages:['javascript']},maxAgeSeconds:300};
- const candidate=await f.core.prepare(f.input);f.refs.set(candidate.shadowRef,candidate.finalSignedCommitSHA);const input={repositoryID:7,commitSHA:candidate.finalSignedCommitSHA,shadowRef:candidate.shadowRef};
+ const candidate=await f.core.prepare({...f.input,message:'Updated policy\n'});f.refs.set(candidate.shadowRef,candidate.finalSignedCommitSHA);const input={repositoryID:7,commitSHA:candidate.finalSignedCommitSHA,shadowRef:candidate.shadowRef};
  const proof=await f.core.lookupReviewPolicy(input);assert.equal(proof.commitSHA,candidate.finalSignedCommitSHA);assert.equal(proof.policyDigest,f.config.policyDigest);assert.equal(proof.policy.priorJobs.policyDigest,f.config.policyDigest);assert.deepEqual(proof.policy.reviewPolicy,f.config.reviewPolicy);assert.equal(proof.policy.runtime,undefined);
  f.setMain(sha('f'));await assert.rejects(f.core.lookupReviewPolicy(input));f.setMain(sha('a'));
  f.config.candidateReviewPolicy.reviewPolicy.reviewerAppID=999;await assert.rejects(f.core.lookupReviewPolicy(input));
- const mismatch=await f.core.prepare(f.input);f.refs.set(mismatch.shadowRef,mismatch.finalSignedCommitSHA);await assert.rejects(f.core.lookupReviewPolicy({repositoryID:7,commitSHA:mismatch.finalSignedCommitSHA,shadowRef:mismatch.shadowRef}),/policy differs/i);
+ const mismatch=await f.core.prepare({...f.input,message:'Mismatched policy\n'});f.refs.set(mismatch.shadowRef,mismatch.finalSignedCommitSHA);await assert.rejects(f.core.lookupReviewPolicy({repositoryID:7,commitSHA:mismatch.finalSignedCommitSHA,shadowRef:mismatch.shadowRef}),/policy differs/i);
 });
 
 test('retained tag object substitution is denied before publication even when the signature field is unchanged',async()=>{
@@ -265,7 +265,8 @@ test('normal Git adapter retains complete original history and computes the squa
   const gitProgram=await realpath('/usr/bin/git'),gitProgramSHA256=sha256(await readFile(gitProgram));
   const git=(args,input)=>execFileSync(gitProgram,args,{cwd:dir,input,env:{PATH:'/usr/bin:/bin',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null'},encoding:'utf8'}).trim();
   git(['init','--bare','--quiet']);git(['symbolic-ref','HEAD','refs/heads/main']);const blob=git(['hash-object','-w','--stdin'],'fixture');const tree=git(['mktree'],`100644 blob ${blob}\tfixture.txt\n`);
-  const commit=(parent,message)=>git(['hash-object','-t','commit','-w','--stdin'],`tree ${tree}\n${parent?'parent '+parent+'\n':''}author Fixture <fixture@example.test> 1000 +0000\ncommitter Fixture <fixture@example.test> 1000 +0000\n\n${message}\n`);
+  const baseTree=git(['mktree'],'');
+  const commit=(parent,message)=>git(['hash-object','-t','commit','-w','--stdin'],`tree ${parent?tree:baseTree}\n${parent?'parent '+parent+'\n':''}author Fixture <fixture@example.test> 1000 +0000\ncommitter Fixture <fixture@example.test> 1000 +0000\n\n${message}\n`);
   const base=commit(null,'base'),one=commit(base,'source one'),two=commit(one,'source two');git(['update-ref','refs/heads/main',base]);git(['update-ref','refs/heads/source',two]);
   let archive;const adapter=await createLocalGitSource({repositoryPath:dir,gitProgram,gitProgramSHA256,archive:{retain:async value=>{archive=value;return {digest:value.digest,reference:'fixture-retained'};},read:async()=>archive.closure},inventory:{classify:async({entries})=>({complete:true,paths:entries.map(e=>e.path),languages:['text'],frameworks:[],manifests:[]})}});
   const snapshot=await adapter.snapshot({repositoryID:7,repository:'owner/fixture',sourceRef:'refs/heads/source',targetRef:'refs/heads/main'});
@@ -278,4 +279,78 @@ test('normal Git adapter retains complete original history and computes the squa
   assert.equal(git(['rev-parse','refs/heads/main']),base);assert.equal(git(['rev-parse','refs/heads/source']),two);
   git(['config','merge.hostile.driver','touch /tmp/not-executed']);await assert.rejects(adapter.snapshot({repositoryID:7,repository:'owner/fixture',sourceRef:'refs/heads/source',targetRef:'refs/heads/main'}),/External merge drivers/);
  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('integration uses the exact working branch name and one main parent',async()=>{
+ const f=await fixture();f.config.sourceRef='refs/heads/feature/randomTicket01234';
+ const p=await f.core.prepare(f.input);
+ assert.equal(p.shadowRef,'refs/heads/int/feature/randomTicket01234');
+ assert.deepEqual(p.signedCommit.split('\n').filter(line=>line.startsWith('parent ')),['parent '+sha('a')]);
+});
+test('dotted working branches are accepted and integration branches cannot recursively sign',async()=>{
+ const f=await fixture();f.config.sourceRef='refs/heads/feature/release.1';
+ assert.equal((await f.core.prepare(f.input)).shadowRef,'refs/heads/int/feature/release.1');
+ f.config.sourceRef='refs/heads/int/feature/release.1';await assert.rejects(f.core.prepare(f.input));
+});
+test('a candidate lookup never accepts an older generation at a reused integration ref',async()=>{
+ const f=await fixture(),p=await f.core.prepare(f.input);f.refs.set(p.shadowRef,p.finalSignedCommitSHA);
+ await f.core.prepare({...f.input,message:'New candidate\n'});
+ await assert.rejects(f.core.lookupCandidate({repositoryID:7,commitSHA:p.finalSignedCommitSHA,shadowRef:p.shadowRef}));
+});
+test('main advance replaces the identical integration ref by close-delete-create-new-PR',async()=>{
+ const f=await fixture(),events=[];let pull=null,n=30;
+ f.publisher.findPullRequest=async q=>pull?.state==='open'&&pull.headSHA===q.headSHA?pull:null;
+ f.publisher.createPullRequest=async spec=>{events.push('pr');pull={number:++n,repositoryID:7,headRef:spec.headRef,headSHA:spec.headSHA,baseRef:spec.baseRef,baseSHA:spec.baseSHA,state:'open',draft:true,url:'https://github.com/owner/project/pull/'+n};};
+ f.publisher.closePullRequest=async input=>{assert.equal(input.number,pull.number);assert.equal(input.headSHA,pull.headSHA);events.push('close');pull.state='closed';};
+ f.publisher.deleteRef=async input=>{assert.equal(f.refs.get(input.ref),input.expectedSHA);events.push('delete');f.refs.delete(input.ref);};
+ const create=f.publisher.createRef;f.publisher.createRef=async(...a)=>{events.push('create');return create(...a);};
+ const a=await f.core.prepare(f.input);await f.core.publishShadow({repositoryID:7,sequence:a.sequence});events.length=0;
+ f.setMain(sha('f'));const b=await f.core.prepare({...f.input,message:'Replacement\n'});
+ assert.equal(a.shadowRef,b.shadowRef);const result=await f.core.publishShadow({repositoryID:7,sequence:b.sequence});
+ assert.deepEqual(events,['close','delete','create','pr']);assert.equal(result.pullRequest.number,32);
+ await assert.rejects(f.core.publishShadow({repositoryID:7,sequence:a.sequence}));
+ assert.equal(f.refs.get(b.shadowRef),b.finalSignedCommitSHA);
+});
+test('retirement closes and deletes an owned stale integration without touching source or main',async()=>{
+ const f=await fixture(),provider=shadowPublisher(f),p=await f.core.prepare(f.input);await f.core.publishShadow({repositoryID:7,sequence:p.sequence});
+ f.publisher.findPullRequest=async()=>provider.pull?.state==='open'?provider.pull:null;
+ f.publisher.closePullRequest=async()=>{provider.pull.state='closed';};
+ f.publisher.deleteRef=async({ref,expectedSHA})=>{assert.equal(f.refs.get(ref),expectedSHA);f.refs.delete(ref);};
+ f.setMain(sha('f'));assert.equal(typeof f.core.retireShadow,'function');
+ await f.core.retireShadow({repositoryID:7,sequence:p.sequence});assert.equal(f.refs.has(p.shadowRef),false);
+ await assert.rejects(f.core.lookupCandidate({repositoryID:7,commitSHA:p.finalSignedCommitSHA,shadowRef:p.shadowRef}));
+});
+test('a zero-diff integration does not sign an empty candidate',async()=>{
+ const f=await fixture(),snapshot=f.git.snapshot;f.git.snapshot=async()=>({...await snapshot(),mainTreeSHA:sha('d')});
+ const result=await f.core.prepare(f.input);assert.equal(result.noChanges,true);assert.equal(f.signatures.length,0);
+});
+test('identical signed bytes cannot overwrite a previous commit-to-generation binding',async()=>{
+ const f=await fixture(),p=await f.core.prepare(f.input);
+ await assert.rejects(f.core.prepare(f.input));
+ assert.equal((await f.storage.get('source-commit:7:'+p.finalSignedCommitSHA)).sequence,p.sequence);
+});
+test('retirement publisher grants stay exact after candidate promotion',async()=>{
+ const f=await fixture(),provider=shadowPublisher(f),p=await f.core.prepare(f.input);await f.core.publishShadow({repositoryID:7,sequence:p.sequence});await f.core.approve({repositoryID:7,sequence:p.sequence,ownerApproval:approval(p)});await f.core.publish({repositoryID:7,sequence:p.sequence});f.setMain(p.finalSignedCommitSHA);
+ f.publisher.findPullRequest=async()=>provider.pull?.state==='open'?provider.pull:null;
+ f.publisher.closePullRequest=async input=>{await f.core.authorizePublication({repository:f.config.repository,repositoryID:7,operation:'close-pull-request',...input});provider.pull.state='closed';};
+ f.publisher.deleteRef=async input=>{await f.core.authorizePublication({repository:f.config.repository,repositoryID:7,operation:'delete-ref',...input});assert.equal(f.refs.get(input.ref),input.expectedSHA);f.refs.delete(input.ref);};
+ await f.core.retireShadow({repositoryID:7,sequence:p.sequence});assert.equal(f.refs.has(p.shadowRef),false);
+});
+test('source lifecycle, exact candidate checks, replacements and promotion compose across generations',async()=>{
+ const {createIntegrationLifecycle}=await import('../src/source-signing/integration-lifecycle.mjs');
+ const f=await fixture();let sourceSHA=sha('c'),mainSHA=sha('a'),version=1,pull=null,number=100;const checked=[];
+ const originalSnapshot=f.git.snapshot;f.git.source=async()=>sourceSHA;f.git.snapshot=async()=>({...await originalSnapshot(),sourceSHA});
+ f.publisher.findPullRequest=async q=>pull?.state==='open'&&pull.headSHA===q.headSHA?pull:null;
+ f.publisher.createPullRequest=async spec=>{await f.core.authorizePublication({repository:f.config.repository,repositoryID:7,operation:'create-pull-request',...spec});pull={number:++number,repositoryID:7,headRef:spec.headRef,headSHA:spec.headSHA,baseRef:spec.baseRef,baseSHA:spec.baseSHA,state:'open',draft:true,url:'https://github.com/owner/project/pull/'+number};};
+ f.publisher.closePullRequest=async input=>{await f.core.authorizePublication({repository:f.config.repository,repositoryID:7,operation:'close-pull-request',...input});assert.equal(pull.number,input.number);pull.state='closed';};
+ f.publisher.deleteRef=async input=>{await f.core.authorizePublication({repository:f.config.repository,repositoryID:7,operation:'delete-ref',...input});assert.equal(f.refs.get(input.ref),input.expectedSHA);f.refs.delete(input.ref);};
+ const create=f.publisher.createRef;f.publisher.createRef=async(ref,objectSHA)=>{await f.core.authorizePublication({repository:f.config.repository,repositoryID:7,operation:'create-ref',ref,objectSHA});return create(ref,objectSHA);};
+ const verifyCI=f.ci.verify;f.ci.verify=async input=>{assert.equal(input.commitSHA,pull.headSHA);assert.notEqual(input.commitSHA,sourceSHA);checked.push(input.commitSHA);return verifyCI(input);};
+ const life=createIntegrationLifecycle({storage:memory(),source:{current:async()=>({repositoryID:7,sourcePRNumber:9,headRepositoryID:7,headRef:f.config.sourceRef,headSHA:sourceSHA,baseRef:'refs/heads/main',baseSHA:mainSHA,state:'open',prepareInput:{...f.input,sourcePR:{...f.input.sourcePR,headSHA:sourceSHA},message:'Version '+version+'\n'}})},signing:{prepare:({input})=>f.core.prepare(input),publish:({repositoryID,sequence})=>f.core.publishShadow({repositoryID,sequence}),retire:({repositoryID,sequence})=>f.core.retireShadow({repositoryID,sequence})}});
+ const input={repositoryID:7,sourcePRNumber:9};let result=await life.reconcileIntegration(input);assert.equal(result.candidate.shadowRef,'refs/heads/int/source');
+ for(const next of ['d','e']){sourceSHA=sha(next);version++;const previous=result.candidate;result=await life.reconcileIntegration(input);assert.equal(result.candidate.shadowRef,previous.shadowRef);assert.notEqual(result.candidate.pullRequest.number,previous.pullRequest.number);await assert.rejects(f.core.lookupCandidate({repositoryID:7,commitSHA:previous.finalSignedCommitSHA,shadowRef:previous.shadowRef}));}
+ mainSHA=sha('f');f.setMain(mainSHA);version++;result=await life.reconcileIntegration(input);const p=result.candidate;
+ assert.deepEqual(p.signedCommit.split('\n').filter(l=>l.startsWith('parent ')),['parent '+mainSHA]);
+ await f.core.approve({repositoryID:7,sequence:p.sequence,ownerApproval:approval(p)});const receipt=await f.core.publish({repositoryID:7,sequence:p.sequence});const proof=await f.core.verifyPromotion({receiptDigest:receipt.receiptDigest});assert.equal(proof.candidate.commitSHA,p.finalSignedCommitSHA);assert(checked.length>0&&checked.every(sha=>sha===p.finalSignedCommitSHA));
+ f.setMain(p.finalSignedCommitSHA);await assert.rejects(f.core.verifyPromotion({receiptDigest:receipt.receiptDigest}));
 });

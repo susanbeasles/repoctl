@@ -23,7 +23,9 @@ accepting fallback implementations are installed here.
    needed to produce this policy-eligible candidate. An uncertain signing call
    is never retried automatically.
 3. `publishShadow({repositoryID, sequence})` publishes only that exact S to
-   `refs/heads/promotion/<sequence>/shadow`, with immutable generation semantics.
+   `refs/heads/int/<working-branch>`. Replacement closes the old PR, deletes the
+   exact old ref, recreates the same name and opens a new PR. Generation records
+   and commit-to-generation bindings remain immutable.
    The original source PR/history is retained separately. All build, automated
    checks and scans operate on S during the PR phase. The standalone publisher
    creates one draft PR against M; durable reservations and exact readback
@@ -150,8 +152,9 @@ a bot check is never represented as a human review.
 
 `lookupCandidate({repositoryID, commitSHA, shadowRef})` verifies exact retained
 signed bytes, authorized signer, current P/M, and actual shadow-ref readback S.
-The only accepted ref grammar is
-`^refs/heads/promotion/([1-9][0-9]*)/shadow$`, with a safe-integer sequence.
+The ref must equal `integrationRef(sourceRef)` under the shared safe-ref validator.
+The independent sequence must be a positive safe integer and the exact active
+generation must still match; historical PRs at the same ref are not candidates.
 It returns:
 
 ```text
