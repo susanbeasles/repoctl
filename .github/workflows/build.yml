@@ -1,35 +1,13 @@
-name: Validate controller source
-
+name: Integration validation
 on:
   push:
     branches: ['int/**']
 concurrency:
   group: integration-${{ github.repository_id }}-${{ github.ref }}
   cancel-in-progress: true
-
 permissions:
   contents: read
-
+  id-token: write
 jobs:
-  admission:
-    permissions:
-      contents: read
-      id-token: write
-    uses: susanbeasles/workflow_depot/.github/workflows/admit-integration.yml@8659f3b78f23870e78ac8f7c98f72b5d786c229a
-    with:
-      candidate_sha: ${{ github.sha }}
   validate:
-    needs: [admission]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: '24'
-          package-manager-cache: false
-      - name: Run offline controller tests with synthetic fixtures
-        run: node --test controller/test/*.test.mjs
+    uses: susanbeasles/workflow_depot/.github/workflows/validate-repoctl.yml@a430d212d3995173fa8fe4187c0132abf12546dc
