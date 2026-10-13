@@ -1,1 +1,20 @@
-{"name":"repoctl-controller","private":true,"type":"module","scripts":{"test":"node --test test/*.test.mjs"},"engines":{"node":">=22"},"devDependencies":{"wrangler":"4.147.0"}}
+{
+  "name": "repoctl-controller",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check:runtime": "node scripts/check-runtime.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  },
+  "overrides": {
+    "miniflare": {
+      "sharp": "0.35.5"
+    }
+  }
+}
