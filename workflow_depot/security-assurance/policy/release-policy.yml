@@ -1,0 +1,260 @@
+# Release policy consumed by gate-evaluate (.github/scripts/gate.py).
+#
+# The gate is default-deny: every control listed with tier "gate" must have a
+# result file with status PASS, or NOT_APPLICABLE with a reason. Missing result
+# => NOT_RUN => gate FAILS. TOOL_FAILURE, POLICY_UNAVAILABLE, INCONCLUSIVE never
+# count as PASS.
+#
+# Profiles:
+#   ci-baseline  Controls whose evidence must come from OTHER environments (IAST,
+#                runtime monitoring, FIM, APT hunting, iOS dynamic, VM-isolated fuzzing,
+#                formal verification, image SBOM, build provenance, cloud posture) are
+#                recorded as POLICY_UNAVAILABLE and downgraded to "report" UNLESS a
+#                signed external result was ingested (then they are evaluated normally).
+#                Applicable-but-not-run controls inside CI (DAST/API without a target)
+#                are POLICY_UNAVAILABLE and BLOCK under both profiles.
+#   strict       Those same controls stay "gate". The pipeline will never promote
+#                until they are implemented elsewhere and their evidence is fed in.
+#                Use this profile to prove fail-closed behaviour, or once the
+#                non-CI controls exist.
+#
+# fail_on: finding severities that turn a control FAIL. Scanners that only emit
+# findings (no exit-code semantics) are judged on this list.
+
+schema_version: 1
+policy_id: security-assurance-release-policy
+default_profile: ci-baseline
+max_result_age_hours: 24          # evidence older than this is stale => NOT_RUN
+require_candidate_match: true     # every result must carry the gate's SHA + repo
+
+stages:
+  0: [SRC-ECOSYSTEM-DETECT, SRC-GIT-FORENSICS, SEC-SECRETS-GITLEAKS, SEC-SECRETS-TRUFFLEHOG,
+      MAL-CLAMAV, MAL-YARAX, ASSET-HOSTILE, AI-INJECTION, BIN-FORENSICS, SCA-SUPPLY-CHAIN, SAST-SHELL-AUDIT]
+  2: [SAST-SEMGREP, SAST-CODEQL, SAST-SHELLCHECK, SAST-BANDIT, SAST-ESLINT-SECURITY, SAST-RUST, SCA-CARGO-DENY,
+      SAST-SWIFTLINT, SCA-OSV, SCA-TRIVY, SCA-GRYPE, SCA-NPM-AUDIT, SCA-PIP-AUDIT,
+      SCA-LOCKFILE-INTEGRITY, SBOM-SOURCE, IAC-CHECKOV, IAC-TRIVY-CONFIG, IAC-ZIZMOR, IAC-CONFTEST,
+      CACHE-TRUST, CACHE-CONTENT, DAST-ZAP, DAST-NUCLEI, API-SCHEMATHESIS, FUZZ-PARSERS,
+      IAST-RUNTIME, MAST-DYNAMIC, RUNTIME-LINUX, FIM-BASELINE, APT-HUNT, FUZZ-COVERAGE, FORMAL-VERIFY,
+      SBOM-IMAGE, PROVENANCE-BUILD, CLOUD-POSTURE]
+  4: [AI-REVIEW]
+  5: [SBOM-ATTEST, EVIDENCE-SIGN]
+
+controls:
+  # ---- Stage 0: trusted source admission (non-executing) ----
+  - id: SRC-ECOSYSTEM-DETECT
+    domain: meta
+    tier: gate
+    description: Ecosystem/language/artifact detection drives applicability of every other control.
+  - id: SRC-GIT-FORENSICS
+    domain: G
+    tier: gate
+    fail_on: [critical, high]
+    description: Git object integrity, tree-vs-checkout equality, symlink escapes, config/hook/filter injection, confusable paths, hidden binaries.
+  - id: SEC-SECRETS-GITLEAKS
+    domain: J
+    tier: gate
+    fail_on: [critical, high, medium]
+  - id: SEC-SECRETS-TRUFFLEHOG
+    domain: J
+    tier: report
+    description: Second engine; verification disabled (no egress), so treated as corroborating evidence.
+  - id: MAL-CLAMAV
+    domain: F
+    tier: gate
+    fail_on: [critical]
+  - id: MAL-YARAX
+    domain: F
+    tier: gate
+    fail_on: [critical, high]
+  - id: ASSET-HOSTILE
+    domain: H
+    tier: gate
+    fail_on: [critical, high]
+  - id: AI-INJECTION
+    domain: Q
+    tier: gate
+    fail_on: [critical, high]
+    description: Hard indicators (invisible Unicode tag characters, bidi overrides, hidden-HTML instructions) fail; phrase heuristics are medium and reported only.
+  - id: BIN-FORENSICS
+    domain: F
+    tier: gate
+    fail_on: [critical, high]
+    description: Static ELF/PE/Mach-O/Wasm analysis of every binary blob in the tree (RWX, packing, embedded ELF, packer markers).
+  - id: SCA-SUPPLY-CHAIN
+    domain: D
+    tier: gate
+    fail_on: [critical, high]
+    description: Install scripts, typosquats, dependency confusion, registry overrides, lockfile drift, Rust/Swift/Python supply-chain surfaces.
+  - id: SAST-SHELL-AUDIT
+    domain: A
+    tier: gate
+    fail_on: [critical, high]
+    description: Shell security semantics (curl|sh, eval, rm -rf $VAR, reverse shells, persistence) across scripts and inline shell.
+
+  # ---- Stage 2: parallel analysis (may execute project tooling in isolated jobs) ----
+  - id: SAST-SEMGREP
+    domain: A
+    tier: gate
+    fail_on: [critical, high]           # semgrep ERROR => high, WARNING => medium
+  - id: SAST-CODEQL
+    domain: A
+    tier: gate
+    fail_on: [critical, high]
+    note: POLICY_UNAVAILABLE on private repos without GitHub Advanced Security. Blocks under both profiles — buy the license or change the policy explicitly.
+  - id: SAST-SHELLCHECK
+    domain: A
+    tier: gate
+    fail_on: [high]                     # shellcheck 'error' => high
+  - id: SAST-BANDIT
+    domain: A
+    tier: gate
+    fail_on: [high]
+  - id: SAST-ESLINT-SECURITY
+    domain: A
+    tier: gate
+    fail_on: [critical, high]
+    description: eslint-plugin-security with the depot's pinned toolchain and config, executed in a bubblewrap sandbox; project config/plugins are never loaded.
+  - id: SAST-RUST
+    domain: A
+    tier: gate
+    fail_on: [critical, high]
+    description: cargo-audit over Cargo.lock (RustSEC, yanked, unsound). FAIL when Cargo.toml exists without Cargo.lock.
+  - id: SCA-CARGO-DENY
+    domain: D
+    tier: report
+    description: cargo-deny advisories/sources/bans; needs the cargo toolchain for metadata (NOT_RUN without it).
+  - id: SAST-SWIFTLINT
+    domain: A
+    tier: gate
+    fail_on: [high]
+    description: SwiftLint (Linux build) with the depot's security ruleset. Binary installed and digest-verified; execution on the development sandbox CPU hit SIGILL, so first real-runner execution is required before trusting it.
+  - id: SCA-OSV
+    domain: D
+    tier: gate
+    fail_on: [critical, high]
+  - id: SCA-TRIVY
+    domain: D
+    tier: gate
+    fail_on: [critical, high]
+  - id: SCA-GRYPE
+    domain: D
+    tier: gate
+    fail_on: [critical, high]
+  - id: SCA-NPM-AUDIT
+    domain: D
+    tier: gate
+    fail_on: [critical, high]
+    description: npm/pnpm/yarn audit. FAIL when package.json has no lockfile.
+  - id: SCA-PIP-AUDIT
+    domain: D
+    tier: report
+  - id: SCA-LOCKFILE-INTEGRITY
+    domain: D
+    tier: gate
+    fail_on: [critical, high]
+    description: Lockfile present, every entry has integrity hash, no git/http/file dependencies, registry allowlist.
+  - id: SBOM-SOURCE
+    domain: E
+    tier: gate
+  - id: IAC-CHECKOV
+    domain: K
+    tier: gate
+    fail_on: [critical, high]
+  - id: IAC-TRIVY-CONFIG
+    domain: K
+    tier: gate
+    fail_on: [critical, high]
+  - id: IAC-ZIZMOR
+    domain: K
+    tier: gate
+    fail_on: [critical, high]
+  - id: IAC-CONFTEST
+    domain: K
+    tier: gate
+    fail_on: [critical, high]
+    description: Depot Rego policies (workflows, Dockerfiles, compose, terraform) plus project policies.
+  - id: CACHE-TRUST
+    domain: I
+    tier: gate
+    fail_on: [critical, high]
+  - id: CACHE-CONTENT
+    domain: I
+    tier: gate
+    fail_on: [critical, high]
+    description: Content inspection of restored caches, installed node_modules vs lockfile, build artifacts and every archive member, plus YARA over cache roots.
+  - id: FUZZ-PARSERS
+    domain: R
+    tier: gate
+    description: Hypothesis-driven fuzzing of the pipeline's own parsers (asset, binary, cache, injection, normalize) proving hostile input cannot crash or silently pass them. Runs in the depot qualification workflow; result ingested by reference.
+  - id: DAST-ZAP
+    domain: B
+    tier: gate
+    fail_on: [high]
+    description: POLICY_UNAVAILABLE (blocking) when a web framework is detected and no authorized isolated target is supplied; NOT_APPLICABLE only when no web framework exists.
+  - id: DAST-NUCLEI
+    domain: B
+    tier: report
+    unqualified: true
+  - id: API-SCHEMATHESIS
+    domain: L
+    tier: gate
+    fail_on: [critical, high]
+    description: POLICY_UNAVAILABLE (blocking) when a schema/web framework is detected and no authorized target is supplied; NOT_APPLICABLE only when none exists.
+
+  # ---- Cannot execute inside GitHub Actions. Always POLICY_UNAVAILABLE here. ----
+  - id: IAST-RUNTIME
+    domain: C
+    tier: gate
+    unavailable_in_ci: true
+  - id: MAST-DYNAMIC
+    domain: M
+    tier: gate
+    unavailable_in_ci: true
+  - id: RUNTIME-LINUX
+    domain: N
+    tier: gate
+    unavailable_in_ci: true
+  - id: FIM-BASELINE
+    domain: O
+    tier: gate
+    unavailable_in_ci: true
+  - id: APT-HUNT
+    domain: P
+    tier: gate
+    unavailable_in_ci: true
+  - id: FUZZ-COVERAGE
+    domain: R
+    tier: gate
+    unavailable_in_ci: true
+  - id: FORMAL-VERIFY
+    domain: R
+    tier: gate
+    unavailable_in_ci: true
+  - id: SBOM-IMAGE
+    domain: E
+    tier: gate
+    unavailable_in_ci: true
+    description: Container image SBOM from the build pipeline, ingested via external-evidence.
+  - id: PROVENANCE-BUILD
+    domain: E
+    tier: gate
+    unavailable_in_ci: true
+    description: SLSA build provenance from the build pipeline, ingested via external-evidence.
+  - id: CLOUD-POSTURE
+    domain: K
+    tier: gate
+    unavailable_in_ci: true
+    description: Live cloud posture (Prowler/ScoutSuite via read-only role), ingested via external-evidence.
+
+  # ---- Stage 4/5 ----
+  - id: AI-REVIEW
+    domain: Q
+    tier: report
+    description: Read-only, model-generated, runs only after the deterministic gate passes. Can never flip a gate.
+  - id: SBOM-ATTEST
+    domain: E
+    tier: gate
+    description: Keyless Sigstore attestation of the SBOM by the evidence-sign job (separate identity from scanners).
+  - id: EVIDENCE-SIGN
+    domain: meta
+    tier: gate

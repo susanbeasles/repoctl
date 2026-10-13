@@ -1,0 +1,38 @@
+# Copy this file into an application repository as .github/workflows/security.yml
+# This is the ONLY thing an application repo needs. Keep it thin; all policy lives in the depot.
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"   # daily rescan: advisories change even when code does not
+
+permissions: {}
+
+jobs:
+  security:
+    uses: YOUR-ORG/security-assurance/.github/workflows/security-assurance.yml@PINNED_DEPOT_SHA
+    permissions:
+      contents: read
+      security-events: write   # CodeQL SARIF upload
+      id-token: write          # evidence-sign job only (job-level in the reusable workflow)
+    with:
+      depot_repository: YOUR-ORG/security-assurance
+      depot_ref: PINNED_DEPOT_SHA          # must equal the SHA in `uses:` above
+      policy_profile: ci-baseline          # switch to `strict` once non-CI controls feed evidence in
+      # semgrep_rules_path: security/semgrep   # vendor rules in-repo to make the ruleset digest-pinned
+      # rego_policy_path: security/policy
+      # dast_target_url: https://preview-pr-${{ github.event.number }}.internal.example   # isolated, synthetic data only
+      # dast_authorization_ref: SEC-1234
+      # api_schema_path: openapi.yaml
+      # api_target_url: https://preview-pr-${{ github.event.number }}.internal.example
+      # api_authorization_ref: SEC-1234
+      # codeql_build_command: "cargo build --locked"   # compiled languages only; executes repository code (operator-approved)
+      # external_evidence_tarball: security/external-results.tar.gz   # signed results from IAST/runtime/FIM/fuzz/formal environments
+      # external_evidence_bundle: security/external-results.sig
+      # ai_review_enabled: true                         # explicit opt-in; the key alone never enables egress
+      # ai_review_approval_ref: SEC-5678               # ticket confirming BAA + zero-data-retention with the model provider
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # used only when ai_review_enabled + ai_review_approval_ref are set

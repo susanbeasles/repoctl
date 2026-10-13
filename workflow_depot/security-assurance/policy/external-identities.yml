@@ -1,0 +1,15 @@
+# Signing identities trusted to deliver evidence from environments outside GitHub Actions
+# (IAST agents, mobile dynamic lab, runtime Falco/FIM collectors, threat-hunting platform,
+# fuzzing VMs, formal-verification jobs). external_evidence.py refuses bundles that do not
+# verify against one of these. Fill in your real identities; an empty list means nothing
+# external can ever be ingested and those controls stay POLICY_UNAVAILABLE.
+schema_version: 1
+identities: []
+# Examples:
+# - name: runtime-collector
+#   type: keyless
+#   identity_regexp: "^https://github.com/YOUR-ORG/runtime-evidence/.github/workflows/collect.yml@"
+#   issuer: https://token.actions.githubusercontent.com
+# - name: fuzz-lab
+#   type: key
+#   public_key_path: policy/keys/fuzz-lab.pub

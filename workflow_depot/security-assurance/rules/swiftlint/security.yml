@@ -1,0 +1,37 @@
+# Security-focused SwiftLint configuration (syntax-level rules that work on Linux without a type checker).
+only_rules: [force_unwrapping, force_try, force_cast, implicitly_unwrapped_optional, unsafe_raw_pointer, legacy_random, custom_rules]
+force_unwrapping: { severity: warning }
+force_try: { severity: error }
+force_cast: { severity: warning }
+implicitly_unwrapped_optional: { severity: warning }
+custom_rules:
+  insecure_tls:
+    name: "Insecure TLS"
+    regex: "(NSAllowsArbitraryLoads|allowsArbitraryLoads|setAllowsAnyHTTPSCertificate|serverTrust\\s*=\\s*nil|\\.useCredential\\s*,\\s*URLCredential\\(trust)"
+    message: "TLS/ATS validation weakened"
+    severity: error
+  dynamic_loading:
+    name: "Dynamic code loading / process spawn"
+    regex: "\\b(dlopen|dlsym|NSTask|Process\\(\\)|NSClassFromString|NSSelectorFromString)\\b"
+    message: "dynamic loading or process spawn"
+    severity: warning
+  insecure_storage:
+    name: "Secret in UserDefaults"
+    regex: "UserDefaults[^\\n]*(password|token|secret|apiKey|api_key)"
+    message: "secret-like value stored in UserDefaults; use Keychain"
+    severity: error
+  weak_crypto:
+    name: "Weak crypto"
+    regex: "\\b(CC_MD5|CC_SHA1|kCCAlgorithmDES|kCCAlgorithmRC4|Insecure\\.MD5|Insecure\\.SHA1)\\b"
+    message: "weak hash/cipher"
+    severity: error
+  webview_js:
+    name: "WebView JS bridge"
+    regex: "(javaScriptEnabled\\s*=\\s*true|addScriptMessageHandler|evaluateJavaScript)"
+    message: "WebView JavaScript bridge; review input validation"
+    severity: warning
+  url_scheme_handler:
+    name: "Custom URL scheme handling"
+    regex: "(application\\(_ app:[^\\n]*open url|onOpenURL|handleOpenURL)"
+    message: "deep link handler; validate and authorize URL input"
+    severity: warning

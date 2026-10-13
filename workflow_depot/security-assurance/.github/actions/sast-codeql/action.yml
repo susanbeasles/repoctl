@@ -1,0 +1,72 @@
+name: SAST — CodeQL
+description: CodeQL security-extended queries for one language. Private repos without GitHub Advanced Security produce POLICY_UNAVAILABLE (blocking). Emits SAST-CODEQL-<lang>; the workflow merges per-language results into SAST-CODEQL.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  language: { description: CodeQL language id, required: true }
+  codeql_action_sha: { description: Pinned github/codeql-action SHA, required: true }
+  requires_build: { description: "true when this language needs a project build (from detect-ecosystems codeql_requires_build)", default: "false" }
+  build_command: { description: "Explicit, operator-approved build command for compiled languages. Empty + requires_build=true => POLICY_UNAVAILABLE (untrusted build is never run implicitly).", default: "" }
+runs:
+  using: composite
+  steps:
+    # github/codeql-action cannot be pinned dynamically inside a composite action; the SHA below must match policy/tool-registry.yml.
+    - id: pre
+      shell: bash
+      run: |
+        if [ "${{ inputs.requires_build }}" = "true" ] && [ -z "${{ inputs.build_command }}" ]; then
+          python3 "${{ github.action_path }}/../../scripts/result.py" --control "SAST-CODEQL-${{ inputs.language }}" --domain A --status POLICY_UNAVAILABLE --reason "${{ inputs.language }} requires a project build; no operator-approved codeql_build_command supplied, and the pipeline never runs repository-controlled builds implicitly" --tool codeql
+          echo "run=false" >> "$GITHUB_OUTPUT"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+    - id: init
+      if: steps.pre.outputs.run == 'true'
+      uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d
+      continue-on-error: true
+      with:
+        languages: ${{ inputs.language }}
+        queries: security-extended
+        source-root: ${{ inputs.source_path }}
+        build-mode: ${{ inputs.requires_build == 'true' && 'manual' || 'none' }}
+    - id: build
+      if: steps.pre.outputs.run == 'true' && steps.init.outcome == 'success' && inputs.requires_build == 'true'
+      shell: bash
+      working-directory: ${{ inputs.source_path }}
+      # Executes repository-controlled code. Only reachable with an explicit operator-supplied command.
+      run: timeout 2400 bash -c '${{ inputs.build_command }}'
+      continue-on-error: true
+    - id: analyze
+      if: steps.pre.outputs.run == 'true' && steps.init.outcome == 'success'
+      uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d
+      continue-on-error: true
+      with:
+        category: /language:${{ inputs.language }}
+        output: ${{ runner.temp }}/codeql-sarif
+        upload: always
+    - if: steps.pre.outputs.run == 'true'
+      shell: bash
+      run: |
+        set +e; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"; L="${{ inputs.language }}"; C="SAST-CODEQL-$L"
+        [ "24c54180a607b1449ed407dd24f251e4e9147c8d" = "${{ inputs.codeql_action_sha }}" ] || { python3 "$S/result.py" --control "$C" --domain A --status TOOL_FAILURE --reason "codeql-action SHA in action.yml drifted from registry" --tool codeql; exit 0; }
+        if [ "${{ steps.init.outcome }}" != "success" ]; then
+          python3 "$S/result.py" --control "$C" --domain A --status POLICY_UNAVAILABLE --reason "CodeQL init failed for $L (most likely GitHub Advanced Security not enabled on this private repo, or unsupported language)" --tool codeql; exit 0; fi
+        [ "${{ steps.analyze.outcome }}" = "success" ] || { python3 "$S/result.py" --control "$C" --domain A --status TOOL_FAILURE --reason "codeql analyze failed for $L" --tool codeql; exit 0; }
+        SARIF=$(ls "${{ runner.temp }}"/codeql-sarif/*.sarif 2>/dev/null | head -1); cp "$SARIF" "$E/codeql-$L.sarif"
+        python3 - "$SARIF" "$E/codeql-$L.findings.json" <<'PY'
+        import json,sys
+        d=json.load(open(sys.argv[1])); items=[]; ver=""
+        for run in d.get("runs",[]):
+            ver=run.get("tool",{}).get("driver",{}).get("semanticVersion","")
+            rules={r["id"]:r for r in run.get("tool",{}).get("driver",{}).get("rules",[])}
+            for r in run.get("results",[]):
+                rid=r.get("ruleId",""); props=rules.get(rid,{}).get("properties",{})
+                score=props.get("security-severity"); sev=None
+                if score:
+                    s=float(score); sev="critical" if s>=9 else "high" if s>=7 else "medium" if s>=4 else "low"
+                lvl=r.get("level") or props.get("problem.severity","")
+                sev=sev or {"error":"high","warning":"medium","note":"low"}.get(lvl,"unknown")
+                loc=(r.get("locations") or [{}])[0].get("physicalLocation",{})
+                items.append({"severity":sev,"rule":rid,"path":loc.get("artifactLocation",{}).get("uri",""),"line":loc.get("region",{}).get("startLine"),"message":r.get("message",{}).get("text","")[:300]})
+        json.dump({"items":items,"codeql_version":ver},open(sys.argv[2],"w"),indent=2); print(ver)
+        PY
+        VER=$(python3 -c "import json;print(json.load(open('$E/codeql-$L.findings.json')).get('codeql_version',''))")
+        N=$(python3 "$S/count_blocking.py" "$E/codeql-$L.findings.json")
+        python3 "$S/result.py" --control "$C" --domain A --status $(st "$N") --reason "$N critical/high" --tool codeql --tool-version "$VER" \
+          --ruleset "security-extended@$VER" --findings-json "$E/codeql-$L.findings.json" --evidence "$E/codeql-$L.sarif" --coverage "interprocedural dataflow/taint for $L"

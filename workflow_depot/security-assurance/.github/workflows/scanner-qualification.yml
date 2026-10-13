@@ -1,0 +1,69 @@
+# Runs on the depot itself: proves the gate fails closed and that every custom scanner
+# detects its positive fixtures and stays clean on negative fixtures. Also runs the
+# full pipeline against the depot (dogfooding) so action YAML and tool installs are exercised.
+name: Scanner qualification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 4 * * 1"
+
+permissions: {}
+
+jobs:
+  unit:
+    name: gate failure-injection + fixture detection
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - run: sudo apt-get install -y -qq bubblewrap
+      - run: python3 qualification/test_gate.py
+      - run: python3 qualification/test_scanners.py
+      - run: |
+          python3 .github/scripts/install_tool.py --registry policy/tool-registry.yml --tool cosign --dest "$RUNNER_TEMP/tools"
+          python3 qualification/test_integrity.py
+      - run: pip install --disable-pip-version-check -q "hypothesis==$(python3 -c "import yaml;print(yaml.safe_load(open('policy/tool-registry.yml'))['python_tools']['hypothesis'])")" && python3 qualification/test_fuzz_parsers.py --examples 150
+      - name: Local end-to-end (real action steps) on generated hostile + clean repos
+        run: |
+          pip install --disable-pip-version-check -q "semgrep==$(python3 -c "import yaml;print(yaml.safe_load(open('policy/tool-registry.yml'))['python_tools']['semgrep'])")" "checkov==$(python3 -c "import yaml;print(yaml.safe_load(open('policy/tool-registry.yml'))['python_tools']['checkov'])")"
+          python3 qualification/fixtures.py "$RUNNER_TEMP/fx"
+          set +e; python3 qualification/run_local.py --repo "$RUNNER_TEMP/fx/hostile-repo" --out "$RUNNER_TEMP/run-hostile" --stages 0; H=$?
+          python3 qualification/run_local.py --repo "$RUNNER_TEMP/fx/clean-repo" --out "$RUNNER_TEMP/run-clean" --stages 0,2 --skip malware-scan; C=$?; set -e
+          [ $H -eq 1 ] || { echo "::error::hostile repo must FAIL the stage-0 gate"; exit 1; }
+          echo "clean repo gate exit=$C (expected 1 here only because SAST-CODEQL/FUZZ-PARSERS are produced by other jobs)"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: local-e2e-logs, path: "${{ runner.temp }}/run-*/run.log", if-no-files-found: ignore }
+      - name: Verify every registry digest still matches upstream
+        run: |
+          set -e
+          for t in $(python3 -c "import yaml;print(' '.join(yaml.safe_load(open('policy/tool-registry.yml'))['tools']))"); do
+            python3 .github/scripts/install_tool.py --registry policy/tool-registry.yml --tool "$t" --dest "$RUNNER_TEMP/q" || exit 1
+          done
+      - name: Validate action/workflow YAML parses and pins
+        run: |
+          python3 - <<'PY'
+          import glob,re,sys,yaml
+          bad=0
+          for f in glob.glob(".github/actions/*/action.yml")+glob.glob(".github/workflows/*.yml"):
+              try: yaml.safe_load(open(f))
+              except Exception as e: print(f"YAML ERROR {f}: {e}"); bad+=1
+              for m in re.finditer(r"uses:\s*([\w.-]+/[\w./-]+)@(\S+)",open(f).read()):
+                  if not re.fullmatch(r"[0-9a-f]{40}",m.group(2)) and "YOUR-ORG" not in m.group(1): print(f"UNPINNED {f}: {m.group(0)}"); bad+=1
+          sys.exit(1 if bad else 0)
+          PY
+
+  dogfood:
+    name: full pipeline on this repo (positive fixtures excluded by .scanignore)
+    needs: unit
+    uses: ./.github/workflows/security-assurance.yml
+    permissions: { contents: read, security-events: write, id-token: write }
+    with:
+      depot_repository: ${{ github.repository }}
+      depot_ref: ${{ github.sha }}
+      policy_profile: ci-baseline

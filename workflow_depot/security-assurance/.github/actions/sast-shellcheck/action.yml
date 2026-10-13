@@ -1,0 +1,29 @@
+name: SAST — ShellCheck
+description: "ShellCheck (correctness) plus shell_audit.py (security semantics - curl|sh, eval, rm -rf $VAR, reverse shells, persistence, anti-forensics, secrets on argv) over scripts, Makefiles, package.json scripts and workflow run blocks. Emits SAST-SHELLCHECK and SAST-SHELL-AUDIT."
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  applicable: { description: "true when shell scripts were detected", required: true }
+runs:
+  using: composite
+  steps:
+    - uses: ./.security-depot/.github/actions/install-tool
+      if: inputs.applicable == 'true'
+      id: sc
+      with: { tool: shellcheck }
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        # shell_audit always runs: Makefiles, package.json scripts and workflow run: blocks are shell even when no .sh exists
+        T1=$SECONDS; timeout 300 python3 "$S/shell_audit.py" --root "${{ inputs.source_path }}" --out "$E/shell-audit.findings.json"; RC=$?
+        N=$(python3 "$S/count_blocking.py" "$E/shell-audit.findings.json"); [ $RC -ne 0 ] && N=ERR
+        python3 "$S/result.py" --control SAST-SHELL-AUDIT --domain A --status $(st "$N") --reason "$N critical/high" --tool shell-audit --tool-version 1 --findings-json "$E/shell-audit.findings.json" --evidence "$E/shell-audit.findings.json" --duration-s $((SECONDS-T1)) --coverage "bash/sh/zsh scripts, rc files, Makefile/Justfile/Dockerfile RUN, package.json scripts, workflow run blocks"
+        if [ "${{ inputs.applicable }}" != "true" ]; then python3 "$S/result.py" --control SAST-SHELLCHECK --domain A --status NOT_APPLICABLE --reason "no shell scripts detected by SRC-ECOSYSTEM-DETECT (inline shell still covered by SAST-SHELL-AUDIT)" --tool shellcheck; exit 0; fi
+        cd "${{ inputs.source_path }}"
+        { git ls-files -z -- '*.sh' '*.bash' '*.ksh'; git ls-files -z | xargs -0 -r grep -lZ -m1 '^#!.*\b\(ba\|k\|z\|da\)\?sh\b' 2>/dev/null; } | sort -zu > "$RUNNER_TEMP/sh.list"
+        if [ ! -s "$RUNNER_TEMP/sh.list" ]; then python3 "$S/result.py" --control SAST-SHELLCHECK --domain A --status NOT_APPLICABLE --reason "no shell files found" --tool shellcheck; exit 0; fi
+        xargs -0 -a "$RUNNER_TEMP/sh.list" timeout 600 shellcheck -f json -S style -x >"$E/shellcheck.json" 2>"$E/shellcheck.err"; RC=$?
+        python3 "$S/normalize.py" --tool shellcheck --in "$E/shellcheck.json" --out "$E/shellcheck.findings.json"; NF="$E/shellcheck.findings.json"
+        case $RC in 0) ST=PASS;; 1) ST=FAIL;; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+        python3 "$S/result.py" --control SAST-SHELLCHECK --domain A --status $ST --reason "shellcheck exit $RC over $(tr -cd '\0' < "$RUNNER_TEMP/sh.list" | wc -c) files" \
+          --tool shellcheck --tool-version "${{ steps.sc.outputs.version }}" --tool-digest "${{ steps.sc.outputs.digest }}" \
+          --findings-json "$E/shellcheck.findings.json" --evidence "$E/shellcheck.findings.json" --duration-s $((SECONDS-T0)) --coverage "zsh-specific syntax not analysed"

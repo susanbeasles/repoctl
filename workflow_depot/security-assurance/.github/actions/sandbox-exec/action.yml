@@ -1,0 +1,29 @@
+name: Sandboxed execution
+description: "Runs repository-controlled code (project tooling, plugins, build scripts) inside a bubblewrap sandbox: no network, read-only source, scrubbed environment, single writable output dir, CPU/memory/pid/time limits. The results dir, depot, GITHUB_* env and tokens are not visible inside. Output is DATA; the caller normalises it afterwards."
+inputs:
+  source_path: { description: Directory mounted read-only at /work, required: true }
+  out_path: { description: Directory mounted read-write at /out (created empty), required: true }
+  ro_mounts: { description: "Space-separated host:mount pairs mounted read-only (toolchains)", default: "" }
+  command: { description: Command line executed inside the sandbox (via /bin/sh -c), required: true }
+  timeout_s: { default: "900" }
+  mem_mb: { default: "4096" }
+outputs:
+  rc: { value: "${{ steps.run.outputs.rc }}" }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        command -v bwrap >/dev/null || { sudo apt-get install -y -qq bubblewrap >/dev/null 2>&1 || true; }
+        # Ubuntu 24.04 runners restrict unprivileged user namespaces for unconfined binaries; bwrap ships an AppArmor profile, but enable explicitly if the self-test fails.
+        if ! bwrap --unshare-all --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev -- /bin/true 2>/dev/null; then
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 >/dev/null 2>&1 || true
+          bwrap --unshare-all --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev -- /bin/true || { echo "::error::sandbox unavailable on this runner"; exit 125; }
+        fi
+    - id: run
+      shell: bash
+      run: |
+        set +e; rm -rf "${{ inputs.out_path }}"; mkdir -p "${{ inputs.out_path }}"
+        RO=(); for m in ${{ inputs.ro_mounts }}; do RO+=(--ro "$m"); done
+        "${{ github.action_path }}/../../scripts/sandbox_exec.sh" --src "${{ inputs.source_path }}" --out "${{ inputs.out_path }}" "${RO[@]}" --timeout "${{ inputs.timeout_s }}" --mem-mb "${{ inputs.mem_mb }}" -- /bin/sh -c '${{ inputs.command }}'
+        echo "rc=$?" >> "$GITHUB_OUTPUT"

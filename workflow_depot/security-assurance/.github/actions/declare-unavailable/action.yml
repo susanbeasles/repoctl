@@ -1,0 +1,20 @@
+name: Declare non-CI controls
+description: Emits POLICY_UNAVAILABLE for every control the directive requires that cannot execute inside GitHub Actions, so the gate sees them instead of silently missing them. Also declares unqualified tools as NOT_RUN.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        S="${{ github.action_path }}/../../scripts"
+        u() { python3 "$S/result.py" --control "$1" --domain "$2" --status POLICY_UNAVAILABLE --reason "$3" --tool "$4"; }
+        u IAST-RUNTIME C "IAST requires an instrumented running application (commercial agent or OpenRASP-class instrumentation) in an isolated environment; not available in GitHub Actions" iast
+        u MAST-DYNAMIC M "iOS dynamic analysis requires a trusted Apple test environment (macOS host/device + MobSF); not provisioned" mobsf
+        u RUNTIME-LINUX N "Falco/eBPF runtime monitoring applies to deployed hosts/clusters, not CI runners; must be fed from the runtime environment" falco
+        u FIM-BASELINE O "File-integrity baselines and drift detection apply to deployed artifacts/hosts; evidence must come from the runtime FIM agent" fim
+        u APT-HUNT P "Sigma/ATT&CK threat hunting needs host and network telemetry that CI does not have; no continuous detection exists until a telemetry source is connected" sigma
+        u FUZZ-COVERAGE R "Coverage-guided fuzzing with sanitizers requires VM-grade isolation and long run times; scheduled deep-scan tier not yet provisioned (fast-check/Hypothesis property tests run in the app's own test suite if present)" libfuzzer
+        u FORMAL-VERIFY R "Formal verification/model checking of authorization and signing logic is a per-component engineering effort, not a scanner" tla+
+        u SBOM-IMAGE E "container image SBOM is produced by the build pipeline that builds the image; ingest via external-evidence" syft
+        u PROVENANCE-BUILD E "SLSA build provenance is produced by the build pipeline (slsa-github-generator); ingest via external-evidence" slsa
+        u CLOUD-POSTURE K "live cloud posture needs an authorized read-only role in the cloud account; run Prowler/ScoutSuite there and ingest via external-evidence" prowler
+        python3 "$S/result.py" --control DAST-NUCLEI --domain B --status NOT_RUN --reason "nuclei not yet qualified: template supply chain must be pinned and reviewed before use as a gate (tool-registry.unqualified)" --tool nuclei

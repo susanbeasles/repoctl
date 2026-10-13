@@ -1,0 +1,25 @@
+name: SAST — Semgrep
+description: Semgrep with security rulesets. Prefers repo-vendored rules (pinned); falls back to registry packs and records that the ruleset is not digest-pinned. Emits SAST-SEMGREP.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  rules_path: { description: Optional path to vendored rules (dir or file); empty = registry packs, default: "" }
+  use_registry: { description: "true to also pull registry packs (network, unpinned). Depot rules always apply.", default: "true" }
+  registry_packs: { description: Registry packs when no vendored rules, default: "p/default p/security-audit p/secrets p/owasp-top-ten p/react p/typescript p/nodejs p/python p/rust p/github-actions p/docker p/terraform" }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        VER=$(python3 -c "import yaml;print(yaml.safe_load(open('${{ github.action_path }}/../../../policy/tool-registry.yml'))['python_tools']['semgrep'])")
+        pip install --disable-pip-version-check -q "semgrep==$VER" >"$E/semgrep-install.log" 2>&1 || { python3 "$S/result.py" --control SAST-SEMGREP --domain A --status TOOL_FAILURE --reason "pip install semgrep==$VER failed" --tool semgrep; exit 0; }
+        DEPOT_RULES="${{ github.action_path }}/../../../rules/semgrep"; CFG=(--config "$DEPOT_RULES"); RULESET="depot@$(cat $(find "$DEPOT_RULES" -type f | sort) | sha256sum | cut -c1-16)"
+        if [ -n "${{ inputs.rules_path }}" ] && [ -e "${{ inputs.rules_path }}" ]; then CFG+=(--config "${{ inputs.rules_path }}"); RULESET="$RULESET+vendored@$(cat $(find "${{ inputs.rules_path }}" -type f | sort) | sha256sum | cut -c1-16)"; fi
+        if [ "${{ inputs.use_registry }}" = "true" ]; then for p in ${{ inputs.registry_packs }}; do CFG+=(--config "$p"); done; RULESET="$RULESET+registry(unpinned)@$(date -u +%FT%TZ)"; fi
+        cd "${{ inputs.source_path }}"
+        SEMGREP_SEND_METRICS=off timeout 1500 semgrep scan "${CFG[@]}" --metrics=off --json --output "$E/semgrep.json" --error --timeout 60 --max-memory 4000 --exclude node_modules --exclude .git . >"$E/semgrep.log" 2>&1; RC=$?
+        python3 "$S/normalize.py" --tool semgrep --in "$E/semgrep.json" --out "$E/semgrep.findings.json"; NF="$E/semgrep.findings.json"
+        case $RC in 0) ST=PASS;; 1) ST=FAIL;; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+        python3 "$S/result.py" --control SAST-SEMGREP --domain A --status $ST --reason "semgrep exit $RC" --tool semgrep --tool-version "$VER" --ruleset "$RULESET" \
+          --findings-json "$E/semgrep.findings.json" --evidence "$E/semgrep.findings.json" --duration-s $((SECONDS-T0)) \
+          --coverage "intra-file + limited interfile taint per pack; pip version-pinned not hash-pinned (GAP-TOOL-PYHASH)"

@@ -1,0 +1,218 @@
+# Tool qualification registry.
+#
+# Every binary tool the pipeline runs is listed here with an exact version and the
+# SHA-256 of the exact release asset. install_tool.py refuses to install anything
+# whose digest does not match (fail closed). Digests were computed by downloading
+# each asset and cross-checked against the upstream *_checksums.txt file where the
+# project publishes one (noted per tool). Re-verify when bumping a version.
+#
+# Fields: version, url, sha256, archive (tar.gz|tar.xz|binary), binary (path inside
+# archive), upstream_checksums (url of the project's checksum file, if any),
+# signing (how the project signs releases; verification step is noted in
+# install_tool.py and is a TODO where not yet wired), capabilities, blind_spots.
+
+schema_version: 1
+registry_updated: "2026-10-12"  # v3: cargo-audit, cargo-deny, swiftlint, cosign added
+
+tools:
+  gitleaks:
+    version: "8.30.1"
+    url: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+    sha256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    archive: tar.gz
+    binary: gitleaks
+    upstream_checksums: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt
+    cross_checked: true
+    capabilities: [secrets-in-source, secrets-in-git-history, encoded-secrets(partial)]
+    blind_spots: [secrets-in-binaries, secrets-in-images, novel-formats-without-rule]
+    network: none
+
+  trufflehog:
+    version: "3.99.2"
+    url: https://github.com/trufflesecurity/trufflehog/releases/download/v3.99.2/trufflehog_3.99.2_linux_amd64.tar.gz
+    sha256: 3c7b0d1dc4278294269bfdd7594bca8bb28c78da0a4a06ad202ded37b48deca4
+    archive: tar.gz
+    binary: trufflehog
+    upstream_checksums: https://github.com/trufflesecurity/trufflehog/releases/download/v3.99.2/trufflehog_3.99.2_checksums.txt
+    cross_checked: false   # digest computed from asset; checksum file not yet diffed in CI
+    capabilities: [secrets-in-git-history, credential-verification(requires-egress)]
+    blind_spots: [verification-requires-outbound-calls-to-providers]
+    network: "provider endpoints only when verification enabled (disabled by default here)"
+
+  osv-scanner:
+    version: "2.7.0"
+    url: https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64
+    sha256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+    archive: binary
+    binary: osv-scanner
+    upstream_checksums: https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_SHA256SUMS
+    cross_checked: true
+    capabilities: [sca-lockfiles, sca-transitive, osv-advisories, call-analysis(go/rust-only)]
+    blind_spots: [malicious-package-intent, reachability-for-js/python]
+    network: api.osv.dev
+
+  trivy:
+    version: "0.75.0"
+    url: https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz
+    sha256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+    archive: tar.gz
+    binary: trivy
+    upstream_checksums: https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_checksums.txt
+    cross_checked: true
+    capabilities: [sca-fs, sca-image, iac-misconfig, secrets(secondary), sbom-ingest]
+    blind_spots: [reachability, malicious-package-intent]
+    network: ghcr.io (vulnerability DB OCI artifact)
+
+  grype:
+    version: "0.120.1"
+    url: https://github.com/anchore/grype/releases/download/v0.120.1/grype_0.120.1_linux_amd64.tar.gz
+    sha256: 0a9ee97ef5ae2ee953b0a80098105052e846cdbe319a57d808b519c33cd1343d
+    archive: tar.gz
+    binary: grype
+    upstream_checksums: https://github.com/anchore/grype/releases/download/v0.120.1/grype_0.120.1_checksums.txt
+    cross_checked: false
+    capabilities: [sca-from-sbom, sca-fs, sca-image]
+    blind_spots: [reachability, malicious-package-intent]
+    network: grype.anchore.io (DB)
+
+  syft:
+    version: "1.54.1"
+    url: https://github.com/anchore/syft/releases/download/v1.54.1/syft_1.54.1_linux_amd64.tar.gz
+    sha256: c069905b391cc4c20a5ba65ad5c10be2a7ba074f8ea6ad203e24d14e303dad47
+    archive: tar.gz
+    binary: syft
+    upstream_checksums: https://github.com/anchore/syft/releases/download/v1.54.1/syft_1.54.1_checksums.txt
+    cross_checked: true
+    capabilities: [sbom-cyclonedx, sbom-spdx, source-and-image]
+    blind_spots: [vendored-code-without-manifest, dynamically-fetched-deps]
+    network: none
+
+  yara-x:
+    version: "1.21.0"
+    url: https://github.com/VirusTotal/yara-x/releases/download/v1.21.0/yara-x-v1.21.0-x86_64-unknown-linux-gnu.tar.gz
+    sha256: 01585181e8979e36ac10ab123fcf8921cf8ba879bf942916413e091e18d64852
+    archive: tar.gz
+    binary: yr
+    upstream_checksums: null
+    cross_checked: false
+    capabilities: [signature-matching, pe/elf/macho-modules, entropy]
+    blind_spots: [coverage-is-only-as-good-as-rules/yara]
+    network: none
+
+  shellcheck:
+    version: "0.11.0"
+    url: https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+    sha256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+    archive: tar.xz
+    binary: shellcheck-v0.11.0/shellcheck
+    upstream_checksums: null
+    cross_checked: false
+    capabilities: [shell-static-analysis, quoting, command-construction]
+    blind_spots: [zsh-specific-syntax, runtime-behavior]
+    network: none
+
+  zizmor:
+    version: "1.30.1"
+    url: https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-x86_64-unknown-linux-gnu.tar.gz
+    sha256: e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a
+    archive: tar.gz
+    binary: zizmor
+    upstream_checksums: null
+    cross_checked: false
+    capabilities: [github-actions-workflow-security, template-injection, unpinned-actions, cache-poisoning-patterns, pwn-requests]
+    blind_spots: [non-github-ci]
+    network: "api.github.com only in --online mode (offline used here)"
+
+  conftest:
+    version: "0.71.1"
+    url: https://github.com/open-policy-agent/conftest/releases/download/v0.71.1/conftest_0.71.1_Linux_x86_64.tar.gz
+    sha256: c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985
+    archive: tar.gz
+    binary: conftest
+    upstream_checksums: https://github.com/open-policy-agent/conftest/releases/download/v0.71.1/checksums.txt
+    cross_checked: false
+    capabilities: [opa-rego-policy-over-structured-config]
+    blind_spots: [only-as-good-as-your-rego]
+    network: none
+
+  cargo-audit:
+    version: "0.22.2"
+    url: https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz
+    sha256: 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
+    archive: tar.gz
+    binary: cargo-audit-x86_64-unknown-linux-musl-v0.22.2/cargo-audit
+    upstream_checksums: null
+    cross_checked: false
+    capabilities: [rustsec-advisories-from-Cargo.lock, yanked-crates, unmaintained]
+    blind_spots: [no-cargo-needed-but-no-build-script-analysis]
+    network: "github.com (advisory-db clone) unless --db pre-fetched"
+
+  cargo-deny:
+    version: "0.20.2"
+    url: https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+    sha256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+    archive: tar.gz
+    binary: cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny
+    upstream_checksums: https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz.sha256
+    cross_checked: true
+    capabilities: [advisories, bans, licenses, sources(registry-allowlist)]
+    blind_spots: [needs-cargo-metadata-which-requires-cargo-toolchain]
+    network: "crates.io index"
+
+  swiftlint:
+    version: "0.65.1"
+    url: https://github.com/realm/SwiftLint/releases/download/0.65.1/swiftlint_linux_amd64.zip
+    sha256: caeed6f4a679c35539ffaf124f6c4ab4a8416917f7d8796279dc52b74026059d
+    archive: zip
+    binary: swiftlint
+    upstream_checksums: null
+    cross_checked: false
+    capabilities: [swift-static-lint, force-unwrap/try, unsafe-pointer-rules, custom-regex-rules]
+    blind_spots: [no-type-checking-on-linux-without-toolchain, no-dynamic-analysis]
+    network: none
+
+  cosign:
+    version: "3.1.3"
+    url: https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-linux-amd64
+    sha256: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+    archive: binary
+    binary: cosign
+    upstream_checksums: https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign_checksums.txt
+    cross_checked: true
+    capabilities: [sign-blob, verify-blob, attest-blob, keyless-oidc]
+    blind_spots: []
+    network: "fulcio.sigstore.dev, rekor.sigstore.dev (keyless only)"
+
+# Python-distributed tools. Version-pinned; NOT hash-pinned yet (pip --require-hashes
+# needs a full transitive hash set generated with `uv pip compile --generate-hashes`).
+# This is recorded as coverage gap GAP-TOOL-PYHASH in docs/coverage-matrix.md.
+python_tools:
+  semgrep: "1.180.0"
+  hypothesis: "6.169.0"
+  checkov: "3.3.28"
+  bandit: "1.9.4"
+  pip-audit: "2.10.1"
+  schemathesis: "4.31.0"
+
+# Actions used by the reusable workflow, pinned to full commit SHAs
+# (tag shown for humans; the SHA is what runs).
+actions:
+  actions/checkout: { tag: v7.0.1, sha: 3d3c42e5aac5ba805825da76410c181273ba90b1 }
+  actions/upload-artifact: { tag: v7.0.2, sha: cf430e030ddbb5b0abf93d22962f4752f3646cd9 }
+  actions/download-artifact: { tag: v8.0.2, sha: 9000827ccba6bdab643e8b6fd33ac0654aef8333 }
+  actions/setup-python: { tag: v7.0.0, sha: 5fda3b95a4ea91299a34e894583c3862153e4b97 }
+  actions/setup-node: { tag: v7.1.0, sha: 949feb2413d6458794dcd2491c4babbbce0c15c1 }
+  # eslint toolchain installed by the depot (pinned exact versions, --ignore-scripts) and mounted read-only into the sandbox
+node_tools:
+  eslint: "10.12.0"
+  eslint-plugin-security: "4.2.0"
+  "@eslint/js": "10.0.1"
+  github/codeql-action: { tag: v4.38.3, sha: 24c54180a607b1449ed407dd24f251e4e9147c8d }
+  sigstore/cosign-installer: { tag: v4.1.2, sha: 6f9f17788090df1f26f669e9d70d6ae9567deba6 }
+  zaproxy/action-baseline: { tag: v0.15.0, sha: de8ad967d3548d44ef623df22cf95c3b0baf8b25 }
+
+# Not yet qualified (no pinned digest, no fixture). Listed so the gap is explicit.
+unqualified:
+  mobsf: "requires dedicated host; not provisioned"
+  nuclei: "template supply chain needs review/pinning before use as a gate"
+  clamav: "installed from Ubuntu apt (distro-signed); version recorded at runtime, not pinned here"

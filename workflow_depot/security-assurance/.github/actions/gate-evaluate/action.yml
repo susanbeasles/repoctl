@@ -1,0 +1,43 @@
+name: Security gate
+description: Stage 3/5. Merges per-language results, evaluates every control against release-policy.yml, writes a signed-ready evidence bundle and fails closed. Emits the gate decision.
+inputs:
+  results_dir: { description: Directory with all downloaded result files, required: true }
+  profile: { description: ci-baseline | strict, default: ci-baseline }
+  stage: { description: "all or comma-separated stages, e.g. 0,2", default: all }
+outputs:
+  decision: { value: "${{ steps.gate.outputs.decision }}" }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        # Merge SAST-CODEQL-<lang> into SAST-CODEQL (worst status wins; NOT_RUN if languages were detected but no results exist).
+        python3 - "${{ inputs.results_dir }}" <<'PY'
+        import glob,json,os,sys
+        rd=sys.argv[1]; order=["TOOL_FAILURE","POLICY_UNAVAILABLE","FAIL","INCONCLUSIVE","NOT_RUN","PASS","NOT_APPLICABLE"]
+        members=[json.load(open(p)) for p in glob.glob(os.path.join(rd,"SAST-CODEQL-*.json"))]
+        det={}
+        try: det=json.load(open(os.path.join(rd,"evidence","ecosystems.detected.json")))
+        except Exception: pass
+        langs=det.get("codeql_languages",[])
+        if members:
+            worst=min(members,key=lambda m: order.index(m["status"]) if m["status"] in order else 0)
+            merged=dict(worst); merged["control_id"]="SAST-CODEQL"
+            by={}; items=[]
+            for m in members:
+                for k,v in m.get("findings",{}).get("by_severity",{}).items(): by[k]=by.get(k,0)+v
+                items+=m.get("findings",{}).get("items",[])
+            merged["findings"]={"total":len(items),"by_severity":by,"items":items[:200]}
+            merged["reason"]="; ".join(f"{m['control_id'].split('-',2)[-1]}={m['status']}" for m in members)
+            merged["evidence"]=sum((m.get("evidence",[]) for m in members),[])
+        elif langs:
+            merged={"schema_version":1,"control_id":"SAST-CODEQL","status":"NOT_RUN","reason":f"languages {langs} detected but no CodeQL results were produced","candidate":{"repository":os.environ.get("GITHUB_REPOSITORY",""),"sha":os.environ.get("GITHUB_SHA","")},"findings":{"total":0,"by_severity":{},"items":[]},"finished_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),"tool":{"name":"codeql"}}
+        else:
+            merged={"schema_version":1,"control_id":"SAST-CODEQL","status":"NOT_APPLICABLE","reason":"no CodeQL-supported languages detected","candidate":{"repository":os.environ.get("GITHUB_REPOSITORY",""),"sha":os.environ.get("GITHUB_SHA","")},"findings":{"total":0,"by_severity":{},"items":[]},"finished_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),"tool":{"name":"codeql"}}
+        json.dump(merged,open(os.path.join(rd,"SAST-CODEQL.json"),"w"),indent=2)
+        PY
+    - id: gate
+      shell: bash
+      run: |
+        python3 "${{ github.action_path }}/../../scripts/gate.py" --policy "${{ github.action_path }}/../../../policy/release-policy.yml" \
+          --results "${{ inputs.results_dir }}" --profile "${{ inputs.profile }}" --stage "${{ inputs.stage }}" --out "${{ inputs.results_dir }}/gate-$(echo '${{ inputs.stage }}' | tr ',' '-')"

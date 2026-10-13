@@ -1,0 +1,32 @@
+name: SBOM — Syft (CycloneDX + SPDX)
+description: Generates CycloneDX and SPDX SBOMs of the candidate source with Syft and validates basic completeness. Emits SBOM-SOURCE.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+outputs:
+  cyclonedx: { value: "${{ steps.gen.outputs.cyclonedx }}" }
+runs:
+  using: composite
+  steps:
+    - uses: ./.security-depot/.github/actions/install-tool
+      id: syft
+      with: { tool: syft }
+    - id: gen
+      shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        timeout 600 syft scan "dir:${{ inputs.source_path }}" -o cyclonedx-json="$E/sbom.cdx.json" -o spdx-json="$E/sbom.spdx.json" --source-name "$GITHUB_REPOSITORY" --source-version "$GITHUB_SHA" >"$E/syft.log" 2>&1; RC=$?
+        echo "cyclonedx=$E/sbom.cdx.json" >> "$GITHUB_OUTPUT"
+        if [ $RC -ne 0 ] || [ ! -s "$E/sbom.cdx.json" ]; then python3 "$S/result.py" --control SBOM-SOURCE --domain E --status TOOL_FAILURE --reason "syft exit $RC" --tool syft --tool-version "${{ steps.syft.outputs.version }}"; exit 0; fi
+        python3 - "$E/sbom.cdx.json" "$E/sbom.findings.json" "${{ inputs.source_path }}" <<'PY'
+        import json,os,sys
+        d=json.load(open(sys.argv[1])); comps=d.get("components",[]); items=[]
+        src=sys.argv[3]; manifests=[m for m in ("package.json","pyproject.toml","requirements.txt","Cargo.toml","Package.swift","go.mod") if os.path.exists(os.path.join(src,m))]
+        if manifests and not comps: items.append({"severity":"high","rule":"SBOM-EMPTY","path":",".join(manifests),"message":"manifests present but SBOM has zero components (lockfile/vendor dir missing?)"})
+        nopurl=[c.get("name") for c in comps if not c.get("purl")]
+        if nopurl: items.append({"severity":"medium","rule":"SBOM-NO-PURL","path":"sbom","message":f"{len(nopurl)} components without purl (first: {nopurl[:5]})"})
+        json.dump({"items":items,"component_count":len(comps)},open(sys.argv[2],"w"),indent=2)
+        PY
+        N=$(python3 "$S/count_blocking.py" "$E/sbom.findings.json")
+        C=$(python3 -c "import json;print(json.load(open('$E/sbom.findings.json'))['component_count'])")
+        python3 "$S/result.py" --control SBOM-SOURCE --domain E --status $(st "$N") --reason "$C components; $N completeness failures" --tool syft --tool-version "${{ steps.syft.outputs.version }}" --tool-digest "${{ steps.syft.outputs.digest }}" \
+          --findings-json "$E/sbom.findings.json" --evidence "$E/sbom.cdx.json" "$E/sbom.spdx.json" --duration-s $((SECONDS-T0)) --coverage "source tree only; container/image SBOM is produced by the build pipeline, not here (GAP-SBOM-IMAGE)"

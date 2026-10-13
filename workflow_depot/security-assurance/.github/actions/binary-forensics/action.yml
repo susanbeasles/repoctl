@@ -1,0 +1,15 @@
+name: Binary forensics
+description: Static ELF/PE/Mach-O/Wasm analysis of every binary blob in the tree regardless of extension (RWX segments, executable stack, packing/entropy, packer markers, embedded ELF, suspicious capability strings, host imports). No execution. Emits BIN-FORENSICS.
+inputs:
+  source_path: { description: Tree to inspect, required: true }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        timeout 900 python3 "$S/binary_inspect.py" --root "${{ inputs.source_path }}" --out "$E/binaries.findings.json"; RC=$?
+        N=$(python3 "$S/count_blocking.py" "$E/binaries.findings.json"); [ $RC -ne 0 ] && N=ERR
+        B=$(python3 -c "import json;print(len(json.load(open('$E/binaries.findings.json')).get('binaries',[])))" 2>/dev/null || echo 0)
+        python3 "$S/result.py" --control BIN-FORENSICS --domain F --status $(st "$N") --reason "$B binaries inspected, $N critical/high" --tool binary-inspect --tool-version 1 \
+          --findings-json "$E/binaries.findings.json" --evidence "$E/binaries.findings.json" --duration-s $((SECONDS-T0)) --coverage "structural + strings; no emulation/sandbox execution (GAP-MAL-SANDBOX)"

@@ -1,0 +1,48 @@
+name: Secrets scan
+description: Gitleaks (gate) + TruffleHog (corroborating, verification disabled) over full history. Secrets are never printed; evidence is fingerprinted. Emits SEC-SECRETS-GITLEAKS and SEC-SECRETS-TRUFFLEHOG.
+inputs:
+  source_path: { description: Candidate checkout with full history, required: true }
+runs:
+  using: composite
+  steps:
+    - uses: ./.security-depot/.github/actions/install-tool
+      id: gl
+      with: { tool: gitleaks }
+    - uses: ./.security-depot/.github/actions/install-tool
+      id: th
+      with: { tool: trufflehog }
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        cd "${{ inputs.source_path }}"
+        # gitleaks: full history, redacted, no network
+        timeout 900 gitleaks git --no-banner --redact=100 --exit-code 2 --report-format json --report-path "$E/gitleaks.json" . >"$E/gitleaks.log" 2>&1; RC=$?
+        python3 "$S/normalize.py" --tool gitleaks --in "$E/gitleaks.json" --out "$E/gitleaks.findings.json"; NF="$E/gitleaks.findings.json"
+        case $RC in 0) ST=PASS;; 2) ST=FAIL;; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+        python3 "$S/result.py" --control SEC-SECRETS-GITLEAKS --domain J --status $ST --reason "gitleaks exit $RC" --tool gitleaks \
+          --tool-version "${{ steps.gl.outputs.version }}" --tool-digest "${{ steps.gl.outputs.digest }}" --ruleset "built-in@${{ steps.gl.outputs.version }}" \
+          --findings-json "$E/gitleaks.findings.json" --evidence "$E/gitleaks.findings.json" --duration-s $((SECONDS-T0)) --coverage "all reachable commits, redacted"
+        # trufflehog: history scan, no credential verification (no egress), results stripped of raw values
+        T1=$SECONDS
+        timeout 900 trufflehog git "file://$PWD" --no-update --no-verification --json --fail >"$E/trufflehog.raw.json" 2>"$E/trufflehog.log"; RC=$?
+        python3 - "$E/trufflehog.raw.json" "$E/trufflehog.json" <<'PY'
+        import json,sys
+        out=[]
+        for l in open(sys.argv[1],errors="replace"):
+            l=l.strip()
+            if not l.startswith("{"): continue
+            try: r=json.loads(l)
+            except Exception: continue
+            # Allow-list: keep only locator/metadata fields; everything else may carry secret material.
+            keep={k:r.get(k) for k in ("DetectorName","DetectorType","Verified","SourceName","SourceType","DecoderName")}
+            meta=((r.get("SourceMetadata") or {}).get("Data") or {}); loc=meta.get("Git") or meta.get("Filesystem") or {}
+            keep["SourceMetadata"]={"Data":{"Git":{k:loc.get(k) for k in ("commit","file","email","timestamp","line")}}}
+            out.append(keep)
+        json.dump(out,open(sys.argv[2],"w"))
+        PY
+        rm -f "$E/trufflehog.raw.json"
+        python3 "$S/normalize.py" --tool trufflehog --in "$E/trufflehog.json" --out "$E/trufflehog.findings.json"; NF="$E/trufflehog.findings.json"
+        case $RC in 0) ST=PASS;; 183) ST=FAIL;; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+        python3 "$S/result.py" --control SEC-SECRETS-TRUFFLEHOG --domain J --status $ST --reason "trufflehog exit $RC (verification disabled)" --tool trufflehog \
+          --tool-version "${{ steps.th.outputs.version }}" --tool-digest "${{ steps.th.outputs.digest }}" --confidence heuristic \
+          --findings-json "$E/trufflehog.findings.json" --evidence "$E/trufflehog.findings.json" --duration-s $((SECONDS-T1))

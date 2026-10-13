@@ -1,0 +1,22 @@
+name: Install qualified tool
+description: Installs a tool from policy/tool-registry.yml with mandatory SHA-256 verification (fails closed on mismatch).
+inputs:
+  tool:
+    description: Registry key (gitleaks, trufflehog, osv-scanner, trivy, grype, syft, yara-x, shellcheck, zizmor, conftest)
+    required: true
+outputs:
+  version:
+    value: ${{ steps.install.outputs.version }}
+  digest:
+    value: ${{ steps.install.outputs.digest }}
+  bin:
+    value: ${{ steps.install.outputs.bin }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      run: |
+        python3 "${{ github.action_path }}/../../scripts/install_tool.py" \
+          --registry "${{ github.action_path }}/../../../policy/tool-registry.yml" \
+          --tool "${{ inputs.tool }}" --dest "$RUNNER_TEMP/tools"

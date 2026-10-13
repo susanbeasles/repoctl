@@ -1,0 +1,428 @@
+# Reusable security assurance pipeline (workflow_depot role).
+#
+# Application repositories call this with a thin caller (see caller-example.yml).
+# Every job checks out TWO trees:
+#   src/              the untrusted candidate at the exact github.sha (no credentials persisted, no submodules)
+#   .security-depot/  this repository at a pinned ref, which provides the actions, scripts and policy
+#
+# Trust model:
+#   * Stage 0 jobs never execute anything from the candidate (pure parsers/scanners).
+#   * Stage 2 jobs may run project tooling (npm ci --ignore-scripts, eslint) in their own isolated job.
+#   * No job has write access to the repository, caches, secrets other than the optional AI key, or deploy targets.
+#   * The only OIDC-bearing job is evidence-sign, which runs no scanner and signs only the evidence bundle.
+#   * Deployment is a separate workflow with a separate identity; it verifies the signed bundle before promoting.
+#   * Every result is bound to github.sha + repository + policy digest; the gate rejects anything else.
+
+name: Security Assurance
+
+on:
+  workflow_call:
+    inputs:
+      depot_repository:
+        description: "owner/repo of this security depot"
+        required: true
+        type: string
+      depot_ref:
+        description: "Full commit SHA of the depot to use (pin it; do not use a branch)"
+        required: true
+        type: string
+      policy_profile:
+        description: "ci-baseline | strict"
+        type: string
+        default: ci-baseline
+      semgrep_rules_path:
+        description: "Path (inside src/) to vendored Semgrep rules; empty uses registry packs"
+        type: string
+        default: ""
+      rego_policy_path:
+        description: "Path (inside src/) to Rego policies for Conftest"
+        type: string
+        default: ""
+      cache_mode:
+        description: "none | trusted-ref"
+        type: string
+        default: none
+      dast_target_url:
+        type: string
+        default: ""
+      dast_authorization_ref:
+        description: "Approval/ticket reference that the DAST target is isolated, synthetic-data only"
+        type: string
+        default: ""
+      api_schema_path:
+        type: string
+        default: ""
+      api_target_url:
+        type: string
+        default: ""
+      api_authorization_ref:
+        type: string
+        default: ""
+      codeql_build_command:
+        description: "Operator-approved build command for compiled languages (executes repository code). Empty => compiled-language CodeQL is POLICY_UNAVAILABLE."
+        type: string
+        default: ""
+      ai_review_enabled:
+        description: "Explicit opt-in. An API key alone never enables the AI review."
+        type: boolean
+        default: false
+      ai_review_approval_ref:
+        description: "Approval reference (ticket/BAA/ZDR confirmation) for sending source diffs to the model provider. Required when ai_review_enabled."
+        type: string
+        default: ""
+      external_evidence_tarball:
+        description: "Path (inside src/) to a signed external-results.tar.gz produced by non-CI environments (IAST, runtime, FIM, fuzz lab...)"
+        type: string
+        default: ""
+      external_evidence_bundle:
+        description: "Path (inside src/) to its cosign bundle/signature"
+        type: string
+        default: ""
+      ai_review_model:
+        type: string
+        default: claude-sonnet-4-6
+      ai_review_base_sha:
+        description: "Base SHA for the diff the AI reviewer sees (default: PR base or previous commit)"
+        type: string
+        default: ""
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+    outputs:
+      decision:
+        description: "PASS or FAIL from the final gate"
+        value: ${{ jobs.evidence-sign.outputs.decision }}
+
+permissions: {}
+
+concurrency:
+  group: security-assurance-${{ github.repository }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  RESULTS_DIR: ${{ github.workspace }}/security-results
+  CORRELATION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+  DEPOT: ${{ github.workspace }}/.security-depot
+  # Pinned action SHAs (must match policy/tool-registry.yml)
+  CODEQL_ACTION_SHA: 24c54180a607b1449ed407dd24f251e4e9147c8d
+
+jobs:
+  # ============================ Stage 0: trusted source admission ============================
+  detect:
+    name: "S0 · detect ecosystems"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: { contents: read }
+    outputs:
+      ecosystems: ${{ steps.d.outputs.matrix }}
+      codeql_languages: ${{ steps.d.outputs.codeql_languages }}
+      has_shell: ${{ steps.d.outputs.has_shell }}
+      has_rust: ${{ steps.d.outputs.has_rust }}
+      has_swift: ${{ steps.d.outputs.has_swift }}
+      policy_revision: ${{ steps.bind.outputs.policy_revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { path: src, ref: "${{ github.sha }}", fetch-depth: 1, persist-credentials: false, submodules: false }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
+      - id: bind
+        run: |
+          echo "POLICY_REVISION=$(sha256sum $DEPOT/policy/release-policy.yml | cut -c1-64)" >> "$GITHUB_ENV"
+          echo "policy_revision=$(sha256sum $DEPOT/policy/release-policy.yml | cut -c1-64)" >> "$GITHUB_OUTPUT"
+          echo "INPUT_TREE_DIGEST=$(git -C src rev-parse 'HEAD^{tree}')" >> "$GITHUB_ENV"
+      - id: d
+        uses: ./.security-depot/.github/actions/detect-ecosystems
+        with: { source_path: src }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: { name: results-detect, path: security-results, retention-days: 90, if-no-files-found: error }
+
+  admit:
+    name: "S0 · ${{ matrix.scan }}"
+    needs: detect
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions: { contents: read }
+    strategy:
+      fail-fast: false
+      matrix:
+        scan: [git-forensics, secrets-scan, malware-scan, asset-scan, ai-injection-scan, binary-forensics, supply-chain, shell-audit]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { path: src, ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false, submodules: false }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
+      - run: |
+          echo "POLICY_REVISION=${{ needs.detect.outputs.policy_revision }}" >> "$GITHUB_ENV"
+          echo "INPUT_TREE_DIGEST=$(git -C src rev-parse 'HEAD^{tree}')" >> "$GITHUB_ENV"
+      - if: matrix.scan == 'git-forensics'
+        uses: ./.security-depot/.github/actions/git-forensics
+        with: { source_path: src }
+      - if: matrix.scan == 'secrets-scan'
+        uses: ./.security-depot/.github/actions/secrets-scan
+        with: { source_path: src }
+      - if: matrix.scan == 'malware-scan'
+        uses: ./.security-depot/.github/actions/malware-scan
+        with: { source_path: src, rules_path: .security-depot/rules/yara }
+      - if: matrix.scan == 'asset-scan'
+        uses: ./.security-depot/.github/actions/asset-scan
+        with: { source_path: src }
+      - if: matrix.scan == 'ai-injection-scan'
+        uses: ./.security-depot/.github/actions/ai-injection-scan
+        with: { source_path: src }
+      - if: matrix.scan == 'binary-forensics'
+        uses: ./.security-depot/.github/actions/binary-forensics
+        with: { source_path: src }
+      - if: matrix.scan == 'supply-chain'
+        uses: ./.security-depot/.github/actions/supply-chain
+        with: { source_path: src, base_ref: "${{ github.event.pull_request.base.sha || github.event.before || '' }}" }
+      - if: matrix.scan == 'shell-audit'
+        uses: ./.security-depot/.github/actions/sast-shellcheck
+        with: { source_path: src, applicable: "${{ needs.detect.outputs.has_shell }}" }
+      - if: always()
+        uses: ./.security-depot/.github/actions/ensure-results
+        with:
+          expected: ${{ matrix.scan == 'git-forensics' && 'SRC-GIT-FORENSICS' || matrix.scan == 'secrets-scan' && 'SEC-SECRETS-GITLEAKS SEC-SECRETS-TRUFFLEHOG' || matrix.scan == 'malware-scan' && 'MAL-CLAMAV MAL-YARAX' || matrix.scan == 'asset-scan' && 'ASSET-HOSTILE' || matrix.scan == 'binary-forensics' && 'BIN-FORENSICS' || matrix.scan == 'supply-chain' && 'SCA-SUPPLY-CHAIN' || matrix.scan == 'shell-audit' && 'SAST-SHELLCHECK SAST-SHELL-AUDIT' || 'AI-INJECTION' }}
+          job_status: ${{ job.status }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: "results-admit-${{ matrix.scan }}", path: security-results, retention-days: 90, if-no-files-found: error }
+
+  gate-stage0:
+    name: "S0 · admission gate"
+    needs: [detect, admit]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: { contents: read }
+    outputs:
+      decision: ${{ steps.g.outputs.decision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: "results-*", path: security-results, merge-multiple: true }
+      - id: g
+        uses: ./.security-depot/.github/actions/gate-evaluate
+        with: { results_dir: security-results, profile: "${{ inputs.policy_profile }}", stage: "0" }
+
+  # ============================ Stage 1/2: qualified environment + parallel analysis ============================
+  analyze:
+    name: "S2 · ${{ matrix.scan }}"
+    needs: [detect, gate-stage0]
+    if: needs.gate-stage0.outputs.decision == 'PASS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions: { contents: read }
+    strategy:
+      fail-fast: false
+      matrix:
+        scan: [sast-semgrep, sast-ecosystem, sast-rust, sast-swift, sbom-and-sca, iac-scan, cache-policy, dast-zap, api-schemathesis, declare-unavailable]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { path: src, ref: "${{ github.sha }}", fetch-depth: 1, persist-credentials: false, submodules: false }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
+      - run: |
+          echo "POLICY_REVISION=${{ needs.detect.outputs.policy_revision }}" >> "$GITHUB_ENV"
+          echo "INPUT_TREE_DIGEST=$(git -C src rev-parse 'HEAD^{tree}')" >> "$GITHUB_ENV"
+      - if: matrix.scan == 'sast-ecosystem' || matrix.scan == 'sast-semgrep' || matrix.scan == 'iac-scan' || matrix.scan == 'api-schemathesis' || matrix.scan == 'declare-unavailable'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: { python-version: "3.12" }
+      - if: matrix.scan == 'sast-ecosystem'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: "22" }
+      - if: matrix.scan == 'sast-semgrep'
+        uses: ./.security-depot/.github/actions/sast-semgrep
+        with: { source_path: src, rules_path: "${{ inputs.semgrep_rules_path != '' && format('src/{0}', inputs.semgrep_rules_path) || '' }}" }
+      - if: matrix.scan == 'sast-ecosystem'
+        uses: ./.security-depot/.github/actions/sast-ecosystem
+        with: { source_path: src, ecosystems: "${{ needs.detect.outputs.ecosystems }}" }
+      - if: matrix.scan == 'sast-ecosystem'
+        # Content inspection of what Stage 2 just installed: node_modules vs lockfile, npm cache blobs re-hashed, pip cache wheels.
+        uses: ./.security-depot/.github/actions/cache-content
+        with:
+          rules_path: .security-depot/rules/yara
+          specs: |
+            src/node_modules:node_modules:src/package-lock.json
+            ~/.npm/_cacache:npm-cacache
+            ~/.cache/pip:pip-cache
+            ~/.cache/uv:uv-cache
+            ~/.cargo/registry:cargo-registry
+      - if: matrix.scan == 'sast-rust'
+        uses: ./.security-depot/.github/actions/sast-rust
+        with: { source_path: src, applicable: "${{ needs.detect.outputs.has_rust }}" }
+      - if: matrix.scan == 'sast-swift'
+        uses: ./.security-depot/.github/actions/sast-swift
+        with: { source_path: src, applicable: "${{ needs.detect.outputs.has_swift }}" }
+      - if: matrix.scan == 'sbom-and-sca'
+        id: sbom
+        uses: ./.security-depot/.github/actions/sbom-generate
+        with: { source_path: src }
+      - if: matrix.scan == 'sbom-and-sca'
+        uses: ./.security-depot/.github/actions/sca-scan
+        with: { source_path: src, sbom_path: "${{ steps.sbom.outputs.cyclonedx }}" }
+      - if: matrix.scan == 'iac-scan'
+        uses: ./.security-depot/.github/actions/iac-scan
+        with: { source_path: src, rego_policy_path: "${{ inputs.rego_policy_path != '' && format('src/{0}', inputs.rego_policy_path) || '' }}" }
+      - if: matrix.scan == 'cache-policy'
+        uses: ./.security-depot/.github/actions/cache-policy
+        with: { source_path: src, cache_mode: "${{ inputs.cache_mode }}" }
+      - if: matrix.scan == 'dast-zap'
+        uses: ./.security-depot/.github/actions/dast-zap
+        with: { target_url: "${{ inputs.dast_target_url }}", authorization_ref: "${{ inputs.dast_authorization_ref }}", web_app_detected: "${{ fromJSON(needs.detect.outputs.ecosystems).web_app }}" }
+      - if: matrix.scan == 'api-schemathesis'
+        uses: ./.security-depot/.github/actions/api-schemathesis
+        with: { source_path: src, schema_path: "${{ inputs.api_schema_path }}", target_url: "${{ inputs.api_target_url }}", authorization_ref: "${{ inputs.api_authorization_ref }}", api_detected: "${{ fromJSON(needs.detect.outputs.ecosystems).openapi || fromJSON(needs.detect.outputs.ecosystems).web_app }}" }
+      - if: matrix.scan == 'declare-unavailable'
+        uses: ./.security-depot/.github/actions/declare-unavailable
+      - if: matrix.scan == 'declare-unavailable' && inputs.external_evidence_tarball != ''
+        # Signed results from non-CI environments overwrite the POLICY_UNAVAILABLE placeholders above.
+        uses: ./.security-depot/.github/actions/external-evidence
+        with: { tarball: "src/${{ inputs.external_evidence_tarball }}", bundle: "src/${{ inputs.external_evidence_bundle }}" }
+      - if: matrix.scan == 'declare-unavailable'
+        name: FUZZ-PARSERS (Hypothesis over the pipeline's own parsers)
+        run: |
+          pip install --disable-pip-version-check -q "hypothesis==$(python3 -c "import yaml;print(yaml.safe_load(open('$DEPOT/policy/tool-registry.yml'))['python_tools']['hypothesis'])")"
+          python3 "$DEPOT/qualification/test_fuzz_parsers.py" --emit --examples 150 || true
+      - if: always()
+        uses: ./.security-depot/.github/actions/ensure-results
+        with:
+          expected: ${{ matrix.scan == 'sast-semgrep' && 'SAST-SEMGREP' || matrix.scan == 'sast-ecosystem' && 'SAST-BANDIT SCA-PIP-AUDIT SCA-NPM-AUDIT SAST-ESLINT-SECURITY CACHE-CONTENT' || matrix.scan == 'sast-rust' && 'SAST-RUST SCA-CARGO-DENY' || matrix.scan == 'sast-swift' && 'SAST-SWIFTLINT' || matrix.scan == 'sbom-and-sca' && 'SBOM-SOURCE SCA-OSV SCA-TRIVY SCA-GRYPE SCA-LOCKFILE-INTEGRITY' || matrix.scan == 'iac-scan' && 'IAC-CHECKOV IAC-TRIVY-CONFIG IAC-ZIZMOR IAC-CONFTEST' || matrix.scan == 'cache-policy' && 'CACHE-TRUST' || matrix.scan == 'dast-zap' && 'DAST-ZAP' || matrix.scan == 'api-schemathesis' && 'API-SCHEMATHESIS' || 'IAST-RUNTIME MAST-DYNAMIC RUNTIME-LINUX FIM-BASELINE APT-HUNT FUZZ-COVERAGE FORMAL-VERIFY SBOM-IMAGE PROVENANCE-BUILD CLOUD-POSTURE DAST-NUCLEI FUZZ-PARSERS' }}
+          job_status: ${{ job.status }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: "results-analyze-${{ matrix.scan }}", path: security-results, retention-days: 90, if-no-files-found: error }
+
+  codeql:
+    name: "S2 · codeql (${{ matrix.language }})"
+    needs: [detect, gate-stage0]
+    if: needs.gate-stage0.outputs.decision == 'PASS' && needs.detect.outputs.codeql_languages != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions: { contents: read, security-events: write }
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(needs.detect.outputs.codeql_languages) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { path: src, ref: "${{ github.sha }}", fetch-depth: 1, persist-credentials: false, submodules: false }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
+      - run: |
+          echo "POLICY_REVISION=${{ needs.detect.outputs.policy_revision }}" >> "$GITHUB_ENV"
+          echo "INPUT_TREE_DIGEST=$(git -C src rev-parse 'HEAD^{tree}')" >> "$GITHUB_ENV"
+      - uses: ./.security-depot/.github/actions/sast-codeql
+        with:
+          source_path: src
+          language: ${{ matrix.language }}
+          codeql_action_sha: ${{ env.CODEQL_ACTION_SHA }}
+          requires_build: ${{ contains(fromJSON(needs.detect.outputs.ecosystems).codeql_requires_build, matrix.language) }}
+          build_command: ${{ inputs.codeql_build_command }}
+      - if: always()
+        uses: ./.security-depot/.github/actions/ensure-results
+        with: { expected: "SAST-CODEQL-${{ matrix.language }}", job_status: "${{ job.status }}" }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: "results-codeql-${{ matrix.language }}", path: security-results, retention-days: 90, if-no-files-found: error }
+
+  # ============================ Stage 3: evidence aggregation and policy gate ============================
+  gate-stage2:
+    name: "S3 · policy gate"
+    needs: [detect, gate-stage0, analyze, codeql]
+    if: always() && needs.gate-stage0.outputs.decision == 'PASS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: { contents: read }
+    outputs:
+      decision: ${{ steps.g.outputs.decision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: "results-*", path: security-results, merge-multiple: true }
+      - id: g
+        uses: ./.security-depot/.github/actions/gate-evaluate
+        with: { results_dir: security-results, profile: "${{ inputs.policy_profile }}", stage: "0,2" }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: gate-stage2, path: security-results/gate-0-2, retention-days: 90 }
+
+  # ============================ Stage 4: independent, read-only AI review ============================
+  ai-review:
+    name: "S4 · AI security review (advisory)"
+    needs: [detect, gate-stage2]
+    if: needs.gate-stage2.outputs.decision == 'PASS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { path: src, ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false, submodules: false }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: "results-*", path: security-results, merge-multiple: true }
+      - run: |
+          echo "POLICY_REVISION=${{ needs.detect.outputs.policy_revision }}" >> "$GITHUB_ENV"
+          echo "INPUT_TREE_DIGEST=$(git -C src rev-parse 'HEAD^{tree}')" >> "$GITHUB_ENV"
+      - uses: ./.security-depot/.github/actions/ai-review
+        with:
+          source_path: src
+          enabled: ${{ inputs.ai_review_enabled }}
+          approval_ref: ${{ inputs.ai_review_approval_ref }}
+          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: ${{ inputs.ai_review_model }}
+          base_sha: ${{ inputs.ai_review_base_sha != '' && inputs.ai_review_base_sha || (github.event.pull_request.base.sha || github.event.before || '') }}
+      - if: always()
+        uses: ./.security-depot/.github/actions/ensure-results
+        with: { expected: "AI-REVIEW", job_status: "${{ job.status }}" }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: results-ai-review, path: security-results/AI-REVIEW.json, retention-days: 90, if-no-files-found: error }
+
+  # ============================ Stage 5: evidence signing and promotion decision ============================
+  evidence-sign:
+    name: "S5 · sign evidence & promotion gate"
+    needs: [detect, gate-stage2, ai-review]
+    if: always() && needs.gate-stage2.outputs.decision == 'PASS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The only job with an OIDC token. It runs no scanner and never touches src/.
+    permissions: { contents: read, id-token: write }
+    outputs:
+      decision: ${{ steps.final.outputs.decision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: "results-*", path: security-results, merge-multiple: true }
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Attest SBOM and sign evidence bundle (keyless, Sigstore)
+        env:
+          POLICY_REVISION: ${{ needs.detect.outputs.policy_revision }}
+        run: |
+          set -euo pipefail; S="$DEPOT/.github/scripts"; cd security-results
+          printf '{"repository":"%s","sha":"%s","run_id":"%s","policy_revision":"%s"}' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$POLICY_REVISION" > candidate.json
+          IDENT="^https://github.com/${{ inputs.depot_repository }}/.github/workflows/security-assurance.yml@"
+          # SBOM attestation
+          if [ -s evidence/sbom.cdx.json ]; then
+            cosign attest-blob --yes --type cyclonedx --predicate evidence/sbom.cdx.json --bundle sbom.attestation.sigstore.json candidate.json
+            cosign verify-blob-attestation --type cyclonedx --bundle sbom.attestation.sigstore.json --certificate-identity-regexp "$IDENT" --certificate-oidc-issuer https://token.actions.githubusercontent.com candidate.json
+            python3 "$S/result.py" --control SBOM-ATTEST --domain E --status PASS --tool cosign --tool-version "$(cosign version 2>/dev/null | grep GitVersion | awk '{print $2}')" --evidence sbom.attestation.sigstore.json --reason "keyless attestation verified against workflow identity"
+          else
+            python3 "$S/result.py" --control SBOM-ATTEST --domain E --status TOOL_FAILURE --reason "no SBOM present to attest" --tool cosign
+          fi
+          # Evidence bundle = every result + evidence file, hashed, signed, verified.
+          find . -type f ! -name 'evidence-bundle.*' | sort | xargs sha256sum > evidence-bundle.sha256
+          tar -czf evidence-bundle.tar.gz --exclude='evidence-bundle.tar.gz' .
+          cosign sign-blob --yes --bundle evidence-bundle.sigstore.json evidence-bundle.tar.gz
+          cosign verify-blob --bundle evidence-bundle.sigstore.json --certificate-identity-regexp "$IDENT" --certificate-oidc-issuer https://token.actions.githubusercontent.com evidence-bundle.tar.gz
+          python3 "$S/result.py" --control EVIDENCE-SIGN --domain meta --status PASS --tool cosign --tool-version "$(cosign version 2>/dev/null | grep GitVersion | awk '{print $2}')" --evidence evidence-bundle.tar.gz evidence-bundle.sigstore.json --reason "bundle signed and verified"
+      - id: final
+        name: Final promotion gate (all stages)
+        uses: ./.security-depot/.github/actions/gate-evaluate
+        with: { results_dir: security-results, profile: "${{ inputs.policy_profile }}", stage: all }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: { name: "security-evidence-${{ github.sha }}", path: security-results, retention-days: 400, if-no-files-found: error }
