@@ -1,0 +1,37 @@
+name: DAST — OWASP ZAP baseline
+description: ZAP baseline scan against an explicitly authorized, isolated target seeded with synthetic data only. NOT_APPLICABLE when no target is supplied. Emits DAST-ZAP.
+inputs:
+  target_url: { description: Authorized target (empty = not applicable), default: "" }
+  authorization_ref: { description: Ticket/approval reference proving the target is authorized and non-production, default: "" }
+  web_app_detected: { description: "true when detect-ecosystems found a web framework", default: "false" }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      id: pre
+      run: |
+        S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; mkdir -p "$RESULTS_DIR/evidence"
+        if [ -z "${{ inputs.target_url }}" ] && [ "${{ inputs.web_app_detected }}" = "true" ]; then python3 "$S/result.py" --control DAST-ZAP --domain B --status POLICY_UNAVAILABLE --reason "web application detected but no authorized isolated DAST target was supplied (dast_target_url); dynamic testing is applicable and did not run" --tool zap; echo "run=false" >> "$GITHUB_OUTPUT"
+        elif [ -z "${{ inputs.target_url }}" ]; then python3 "$S/result.py" --control DAST-ZAP --domain B --status NOT_APPLICABLE --reason "no web application framework detected and no target supplied" --tool zap; echo "run=false" >> "$GITHUB_OUTPUT"
+        elif [ -z "${{ inputs.authorization_ref }}" ]; then python3 "$S/result.py" --control DAST-ZAP --domain B --status POLICY_UNAVAILABLE --reason "target supplied without dast_authorization_ref; refusing to scan an unapproved host" --tool zap; echo "run=false" >> "$GITHUB_OUTPUT"
+        else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+    - if: steps.pre.outputs.run == 'true'
+      id: zap
+      uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25
+      continue-on-error: true
+      with:
+        target: ${{ inputs.target_url }}
+        allow_issue_writing: false
+        fail_action: false
+        artifact_name: zap-raw
+        cmd_options: -a -j -T 20
+    - if: steps.pre.outputs.run == 'true'
+      shell: bash
+      run: |
+        set +e; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"
+        [ -f report_json.json ] && cp report_json.json "$E/zap.json"
+        python3 "$S/normalize.py" --tool zap --in "$E/zap.json" --out "$E/zap.findings.json"; NF="$E/zap.findings.json"
+        if [ ! -f "$E/zap.json" ]; then python3 "$S/result.py" --control DAST-ZAP --domain B --status TOOL_FAILURE --reason "zap produced no report" --tool zap; exit 0; fi
+        N=$(python3 "$S/count_blocking.py" "$E/zap.findings.json" high)
+        python3 "$S/result.py" --control DAST-ZAP --domain B --status $(st "$N") --reason "$N high alerts; authorization ${{ inputs.authorization_ref }}" --tool zap --tool-version "action-baseline@de8ad967" \
+          --findings-json "$E/zap.findings.json" --evidence "$E/zap.json" --coverage "passive + light active (baseline, ajax spider); authenticated crawl, API fuzzing and request smuggling tests not in baseline (GAP-DAST-DEPTH)"

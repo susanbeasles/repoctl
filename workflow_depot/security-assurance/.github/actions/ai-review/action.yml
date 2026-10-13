@@ -1,0 +1,45 @@
+name: Independent AI security review (read-only, opt-in)
+description: Stage 4. Runs ONLY after the deterministic gate passes AND the caller has explicitly enabled it with an approval reference. Before anything leaves the runner, the payload is scrubbed (secrets + PHI patterns, path denylist) and refused on any hit. A data-egress receipt (payload digest, bytes, destination, model, usage) is written to evidence. Output is advisory and can never change a gate decision. Emits AI-REVIEW.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  enabled: { description: "Explicit opt-in (true/false). A key alone never enables egress.", default: "false" }
+  approval_ref: { description: "Approval reference: ticket + confirmation that a BAA and zero-data-retention are in place with the model provider. Required when enabled.", default: "" }
+  base_sha: { description: Base commit for the diff (empty = HEAD~1), default: "" }
+  api_key: { description: Anthropic API key (pass secrets.ANTHROPIC_API_KEY), default: "" }
+  model: { description: Model id, default: claude-sonnet-4-6 }
+  max_diff_bytes: { description: Hard cap on diff size sent, default: "200000" }
+  max_tokens: { description: Output token budget, default: "4000" }
+  path_denylist: { description: "Space-separated git pathspecs never sent to the model", default: "fixtures seeds seed test/fixtures tests/fixtures *.sql *.csv *.tsv *.parquet *.xlsx *.json *.pem *.key *.env* *.lock package-lock.json *.min.js *.svg *.pdf" }
+  endpoint: { description: "Only outbound destination this action will contact", default: "https://api.anthropic.com/v1/messages" }
+runs:
+  using: composite
+  steps:
+    - uses: ./.security-depot/.github/actions/install-tool
+      if: inputs.enabled == 'true'
+      id: gl
+      with: { tool: gitleaks }
+    - shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.api_key }}
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        R() { python3 "$S/result.py" --control AI-REVIEW --domain Q --confidence model-generated --tool claude --tool-version "${{ inputs.model }}" "$@"; }
+        if [ "${{ inputs.enabled }}" != "true" ]; then R --status NOT_RUN --reason "ai_review_enabled is false (explicit opt-in required; an API key alone never enables egress)"; exit 0; fi
+        [ -n "${{ inputs.approval_ref }}" ] || { R --status POLICY_UNAVAILABLE --reason "ai_review_enabled without ai_review_approval_ref (BAA/ZDR confirmation); refusing to send source to the model provider"; exit 0; }
+        [ -n "$ANTHROPIC_API_KEY" ] || { R --status TOOL_FAILURE --reason "enabled and approved but secrets.ANTHROPIC_API_KEY is empty"; exit 0; }
+        cd "${{ inputs.source_path }}"
+        BASE="${{ inputs.base_sha }}"; [ -n "$BASE" ] || BASE=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+        EXCL=(); for p in ${{ inputs.path_denylist }}; do EXCL+=(":(exclude,glob)**/$p" ":(exclude,glob)$p"); done
+        git diff --no-ext-diff --no-color "$BASE" HEAD -- . "${EXCL[@]}" > "$RUNNER_TEMP/diff.patch" 2>/dev/null
+        head -c "${{ inputs.max_diff_bytes }}" "$RUNNER_TEMP/diff.patch" > "$RUNNER_TEMP/diff.capped"; cd - >/dev/null
+        # ---- pre-egress scrub: secrets (gitleaks on the payload) + PHI patterns. Any hit => refuse. ----
+        gitleaks stdin --no-banner --redact=100 --exit-code 2 --report-format json --report-path "$E/ai-review.scrub.gitleaks.json" < "$RUNNER_TEMP/diff.capped" >/dev/null 2>&1; GRC=$?
+        python3 "$S/phi_scrub.py" --in "$RUNNER_TEMP/diff.capped" --out "$E/ai-review.scrub.json" --gitleaks-rc "$GRC"
+        if [ $? -ne 0 ]; then R --status INCONCLUSIVE --reason "pre-egress scrub found secret/PHI-pattern hits in the diff; nothing was sent (see ai-review.scrub.json)" --evidence "$E/ai-review.scrub.json"; exit 0; fi
+        # ---- send: single allow-listed destination, single call, no retries; egress receipt written BEFORE the request ----
+        python3 "$S/ai_review_call.py" --diff "$RUNNER_TEMP/diff.capped" --results "$RESULTS_DIR" --out "$E/ai-review.json" --model "${{ inputs.model }}" \
+          --max-tokens "${{ inputs.max_tokens }}" --endpoint "${{ inputs.endpoint }}" --receipt "$E/ai-review.egress-receipt.json" --approval "${{ inputs.approval_ref }}"; RC=$?
+        [ $RC -ne 0 ] && { R --status TOOL_FAILURE --reason "API call failed (see egress receipt)" --evidence "$E/ai-review.egress-receipt.json" "$E/ai-review.scrub.json"; exit 0; }
+        R --status INCONCLUSIVE --reason "advisory review completed under approval ${{ inputs.approval_ref }}; model output is never a gate input" \
+          --findings-json "$E/ai-review.json.findings.json" --evidence "$E/ai-review.json" "$E/ai-review.egress-receipt.json" "$E/ai-review.scrub.json" --duration-s $((SECONDS-T0)) \
+          --coverage "diff capped at ${{ inputs.max_diff_bytes }} bytes; denylist: ${{ inputs.path_denylist }}; single destination ${{ inputs.endpoint }}"

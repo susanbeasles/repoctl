@@ -1,0 +1,17 @@
+# Scheduled deep tier (separate from fast release gates): longer fuzzing, full Semgrep registry packs,
+# unchanged-content rescans against fresh vulnerability intelligence. Results are report-tier
+# unless promoted to gate after false-positive evaluation.
+name: Security deep scan
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  deep:
+    uses: ./.github/workflows/security-assurance.yml
+    permissions: { contents: read, security-events: write, id-token: write }
+    with:
+      depot_repository: ${{ github.repository }}
+      depot_ref: ${{ github.sha }}
+      policy_profile: strict

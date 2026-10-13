@@ -1,0 +1,16 @@
+name: External evidence ingestion
+description: Verifies (cosign) and ingests result files produced outside GitHub Actions (IAST, mobile dynamic, runtime Falco/FIM, threat hunting, fuzzing VMs, formal verification, image SBOM/provenance, cloud posture) so the gate evaluates them like any other control. Unsigned or unknown-identity bundles are rejected whole.
+inputs:
+  tarball: { description: Path to external-results.tar.gz (empty = nothing to ingest), default: "" }
+  bundle: { description: Path to its cosign sigstore bundle, default: "" }
+runs:
+  using: composite
+  steps:
+    - uses: ./.security-depot/.github/actions/install-tool
+      if: inputs.tarball != ''
+      with: { tool: cosign }
+    - shell: bash
+      run: |
+        S="${{ github.action_path }}/../../scripts"
+        [ -n "${{ inputs.tarball }}" ] || { echo "no external evidence supplied"; exit 0; }
+        python3 "$S/external_evidence.py" --tarball "${{ inputs.tarball }}" --bundle "${{ inputs.bundle }}" --identities "${{ github.action_path }}/../../../policy/external-identities.yml" --results-dir "$RESULTS_DIR"

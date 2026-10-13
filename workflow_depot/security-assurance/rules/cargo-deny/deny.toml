@@ -1,0 +1,14 @@
+# Default cargo-deny policy used when the project ships none. Projects may override with their own deny.toml.
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [{ name = "openssl-src", wrappers = [] }]

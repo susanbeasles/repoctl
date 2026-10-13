@@ -1,0 +1,64 @@
+name: IaC & CI configuration security
+description: Checkov, Trivy config, zizmor (GitHub Actions workflow security), optional Conftest/Rego. Emits IAC-CHECKOV, IAC-TRIVY-CONFIG, IAC-ZIZMOR, IAC-CONFTEST.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  rego_policy_path: { description: Optional directory of Rego policies for Conftest, default: "" }
+runs:
+  using: composite
+  steps:
+    - uses: ./.security-depot/.github/actions/install-tool
+      id: trivy
+      with: { tool: trivy }
+    - uses: ./.security-depot/.github/actions/install-tool
+      id: zz
+      with: { tool: zizmor }
+    - uses: ./.security-depot/.github/actions/install-tool
+      id: ct
+      with: { tool: conftest }
+    - shell: bash
+      run: |
+        set +e; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"; SRC="${{ inputs.source_path }}"; R="${{ github.action_path }}/../../../policy/tool-registry.yml"
+        # Checkov
+        T0=$SECONDS; CV=$(python3 -c "import yaml;print(yaml.safe_load(open('$R'))['python_tools']['checkov'])")
+        pip install --disable-pip-version-check -q "checkov==$CV" >"$E/checkov-install.log" 2>&1 || { python3 "$S/result.py" --control IAC-CHECKOV --domain K --status TOOL_FAILURE --reason "pip install checkov==$CV failed" --tool checkov; exit 0; }
+        timeout 900 checkov -d "$SRC" --quiet --compact -o json --output-file-path "$E/checkov" --skip-path node_modules --skip-path .git --skip-download >"$E/checkov.log" 2>&1; RC=$?
+        f=$(ls "$E"/checkov/results_json.json 2>/dev/null | head -1); [ -n "$f" ] && cp "$f" "$E/checkov.json"
+        python3 "$S/normalize.py" --tool checkov --in "$E/checkov.json" --out "$E/checkov.findings.json"; NF="$E/checkov.findings.json"
+        N=$(python3 "$S/count_blocking.py" "$E/checkov.findings.json")
+        if [ $RC -gt 1 ] || [ "$N" = ERR ]; then ST=TOOL_FAILURE; elif [ "$N" -gt 0 ]; then ST=FAIL; else ST=PASS; fi
+        python3 "$S/result.py" --control IAC-CHECKOV --domain K --status $ST --reason "checkov exit $RC, $N high (severity is keyword-derived without platform API)" --tool checkov --tool-version "$CV" --confidence heuristic \
+          --findings-json "$E/checkov.findings.json" --evidence "$E/checkov.findings.json" --duration-s $((SECONDS-T0)) --coverage "terraform, cloudformation, dockerfile, kubernetes, github actions, secrets (built-in)"
+        # Trivy config
+        T0=$SECONDS; timeout 600 trivy config --format json --output "$E/trivy-config.json" --exit-code 0 --skip-dirs .git,node_modules "$SRC" >"$E/trivy-config.log" 2>&1; RC=$?
+        python3 "$S/normalize.py" --tool trivy --in "$E/trivy-config.json" --out "$E/trivy-config.findings.json"; NF="$E/trivy-config.findings.json"
+        N=$(python3 "$S/count_blocking.py" "$E/trivy-config.findings.json")
+        if [ $RC -ne 0 ] || [ "$N" = ERR ]; then ST=TOOL_FAILURE; elif [ "$N" -gt 0 ]; then ST=FAIL; else ST=PASS; fi
+        python3 "$S/result.py" --control IAC-TRIVY-CONFIG --domain K --status $ST --reason "trivy config exit $RC, $N critical/high" --tool trivy --tool-version "${{ steps.trivy.outputs.version }}" --tool-digest "${{ steps.trivy.outputs.digest }}" \
+          --findings-json "$E/trivy-config.findings.json" --evidence "$E/trivy-config.findings.json" --duration-s $((SECONDS-T0))
+        # zizmor
+        T0=$SECONDS
+        if ls "$SRC"/.github/workflows/*.y*ml >/dev/null 2>&1; then
+          timeout 300 zizmor --offline --format json --persona regular "$SRC/.github/workflows" >"$E/zizmor.json" 2>"$E/zizmor.err"; RC=$?
+          python3 "$S/normalize.py" --tool zizmor --in "$E/zizmor.json" --out "$E/zizmor.findings.json"; NF="$E/zizmor.findings.json"
+          N=$(python3 "$S/count_blocking.py" "$E/zizmor.findings.json")
+          if [ $RC -gt 14 ] || [ "$N" = ERR ]; then ST=TOOL_FAILURE; elif [ "$N" -gt 0 ]; then ST=FAIL; else ST=PASS; fi
+          python3 "$S/result.py" --control IAC-ZIZMOR --domain K --status $ST --reason "zizmor exit $RC, $N high" --tool zizmor --tool-version "${{ steps.zz.outputs.version }}" --tool-digest "${{ steps.zz.outputs.digest }}" \
+            --findings-json "$E/zizmor.findings.json" --evidence "$E/zizmor.findings.json" --duration-s $((SECONDS-T0)) --coverage "template injection, unpinned uses, pwn-request triggers, cache poisoning patterns, dangerous permissions"
+        else python3 "$S/result.py" --control IAC-ZIZMOR --domain K --status NOT_APPLICABLE --reason "no .github/workflows in candidate" --tool zizmor; fi
+        # Conftest (optional)
+        T0=$SECONDS
+        POL=(--policy "${{ github.action_path }}/../../../rules/rego"); [ -n "${{ inputs.rego_policy_path }}" ] && [ -d "${{ inputs.rego_policy_path }}" ] && POL+=(--policy "${{ inputs.rego_policy_path }}")
+        if true; then
+          FILES=$(cd "$SRC" && git ls-files -- '.github/workflows/*.y*ml' 'docker-compose*.y*ml' 'compose*.y*ml' '*.tf' '*.tf.json' 'Dockerfile' '*/Dockerfile' '*.Dockerfile' | head -2000)
+          if [ -n "$FILES" ]; then (cd "$SRC" && timeout 300 conftest test "${POL[@]}" --all-namespaces -o json $FILES) >"$E/conftest.json" 2>"$E/conftest.err"; RC=$?
+            python3 - "$E/conftest.json" "$E/conftest.findings.json" <<'PY'
+        import json,sys
+        try: d=json.load(open(sys.argv[1]))
+        except Exception: d=[]
+        items=[{"severity":"high","rule":r.get("msg","")[:80],"path":f.get("filename",""),"message":r.get("msg","")} for f in d for r in f.get("failures",[])]
+        json.dump({"items":items},open(sys.argv[2],"w"))
+        PY
+            case $RC in 0) ST=PASS;; 1) ST=FAIL;; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+            python3 "$S/result.py" --control IAC-CONFTEST --domain K --status $ST --reason "conftest exit $RC" --tool conftest --tool-version "${{ steps.ct.outputs.version }}" --tool-digest "${{ steps.ct.outputs.digest }}" --ruleset "rego@$(cat $(find "${{ github.action_path }}/../../../rules/rego" ${{ inputs.rego_policy_path }} -name '*.rego' 2>/dev/null | sort) | sha256sum | cut -c1-16)" --findings-json "$E/conftest.findings.json" --evidence "$E/conftest.findings.json" --duration-s $((SECONDS-T0))
+          else python3 "$S/result.py" --control IAC-CONFTEST --domain K --status NOT_APPLICABLE --reason "no structured config files (workflows/Dockerfile/compose/terraform) in the tree" --tool conftest; fi
+        fi

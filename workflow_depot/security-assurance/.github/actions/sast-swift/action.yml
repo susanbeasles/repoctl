@@ -1,0 +1,29 @@
+name: Swift security (SwiftLint on Linux)
+description: SwiftLint with a security-focused configuration (vendored in rules/swiftlint) over all Swift sources. Package.swift/Package.resolved supply-chain checks live in SCA-SUPPLY-CHAIN. Emits SAST-SWIFTLINT.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  applicable: { description: "true when Swift detected", required: true }
+runs:
+  using: composite
+  steps:
+    - uses: ./.security-depot/.github/actions/install-tool
+      if: inputs.applicable == 'true'
+      id: sl
+      with: { tool: swiftlint }
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        if [ "${{ inputs.applicable }}" != "true" ]; then python3 "$S/result.py" --control SAST-SWIFTLINT --domain A --status NOT_APPLICABLE --reason "no Swift detected" --tool swiftlint; exit 0; fi
+        CFG="${{ github.action_path }}/../../../rules/swiftlint/security.yml"
+        cd "${{ inputs.source_path }}"; timeout 900 swiftlint lint --config "$CFG" --reporter json --quiet . > "$E/swiftlint.json" 2>"$E/swiftlint.err"; RC=$?
+        python3 - "$E/swiftlint.json" "$E/swiftlint.findings.json" <<'PY'
+        import json,sys
+        try: d=json.load(open(sys.argv[1]))
+        except Exception as e: json.dump({"items":[],"parse_error":str(e)},open(sys.argv[2],"w")); sys.exit(3)
+        items=[{"severity":"high" if r.get("severity")=="Error" else "medium","rule":r.get("rule_id",""),"path":r.get("file",""),"line":r.get("line"),"message":r.get("reason","")[:200]} for r in d]
+        json.dump({"items":items},open(sys.argv[2],"w"),indent=2)
+        PY
+        N=$(python3 "$S/count_blocking.py" "$E/swiftlint.findings.json"); [ $RC -gt 2 ] && N=ERR
+        python3 "$S/result.py" --control SAST-SWIFTLINT --domain A --status $(st "$N") --reason "swiftlint exit $RC, $N high" --tool swiftlint --tool-version "${{ steps.sl.outputs.version }}" --tool-digest "${{ steps.sl.outputs.digest }}" \
+          --ruleset "security.yml@$(sha256sum "$CFG" | cut -c1-16)" --findings-json "$E/swiftlint.findings.json" --evidence "$E/swiftlint.findings.json" --duration-s $((SECONDS-T0)) \
+          --coverage "syntax-level rules only on Linux (no type-checked analyzer rules); iOS dynamic analysis stays MAST-DYNAMIC (external)"

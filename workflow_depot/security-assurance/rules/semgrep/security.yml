@@ -1,0 +1,184 @@
+# Vendored Semgrep rules: a baseline that runs offline and is digest-pinned via the ruleset_revision field.
+# Extend by vendoring additional rules from the registry (semgrep --config p/... --dump-config) through a reviewed PR.
+rules:
+  - id: js-child-process-shell-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: child_process exec/execSync with non-literal command (shell injection)
+    metadata: { cwe: "CWE-78", owasp: "A03:2021" }
+    patterns:
+      - pattern-either:
+          - pattern: $CP.exec($CMD, ...)
+          - pattern: $CP.execSync($CMD, ...)
+          - pattern: exec($CMD, ...)
+          - pattern: execSync($CMD, ...)
+      - pattern-not: $CP.exec("...", ...)
+      - pattern-not: $CP.execSync("...", ...)
+      - pattern-not: exec("...", ...)
+      - pattern-not: execSync("...", ...)
+  - id: js-eval-non-literal
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: eval / new Function with non-literal input
+    metadata: { cwe: "CWE-95" }
+    patterns:
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: new Function(..., $X)
+      - pattern-not: eval("...")
+  - id: js-express-cors-wildcard-credentials
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: CORS with origin wildcard and credentials
+    metadata: { cwe: "CWE-942" }
+    pattern: 'cors({..., origin: "*", credentials: true, ...})'
+  - id: js-insecure-tls-reject-unauthorized
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: TLS certificate validation disabled
+    metadata: { cwe: "CWE-295" }
+    pattern-either:
+      - pattern: rejectUnauthorized = false
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+      - pattern: '{..., rejectUnauthorized: false, ...}'
+  - id: js-mongo-where-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: MongoDB $where with non-literal input (NoSQL injection)
+    metadata: { cwe: "CWE-943" }
+    patterns:
+      - pattern: '{..., $where: $X, ...}'
+      - pattern-not: '{..., $where: "...", ...}'
+  - id: js-jwt-none-or-no-verify
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: JWT decoded without verification or with algorithm none
+    metadata: { cwe: "CWE-347" }
+    pattern-either:
+      - pattern: jwt.decode($T, ...)
+      - pattern: 'jwt.verify($T, $K, {..., algorithms: [..., "none", ...], ...}, ...)'
+  - id: js-hardcoded-secret-assignment
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: hard-coded secret-looking value
+    metadata: { cwe: "CWE-798" }
+    pattern-regex: "(?i)(api[_-]?key|secret|password|token)\\s*[:=]\\s*[\"'][A-Za-z0-9+/_\\-]{16,}[\"']"
+  - id: js-prototype-pollution-merge
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: recursive merge/assign of user-controlled object (prototype pollution)
+    metadata: { cwe: "CWE-1321" }
+    pattern: $O[$K] = $V
+    paths: { include: ["*merge*", "*assign*", "*extend*", "*deep*"] }
+  - id: py-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: subprocess with shell=True and non-literal command
+    metadata: { cwe: "CWE-78" }
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$F($CMD, ..., shell=True, ...)
+      - pattern-not: subprocess.$F("...", ..., shell=True, ...)
+  - id: py-yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: yaml.load without SafeLoader (deserialization RCE)
+    metadata: { cwe: "CWE-502" }
+    patterns:
+      - pattern: yaml.load($X, ...)
+      - pattern-not: yaml.load($X, Loader=yaml.SafeLoader)
+      - pattern-not: yaml.load($X, yaml.SafeLoader)
+  - id: py-pickle-loads
+    languages: [python]
+    severity: ERROR
+    message: pickle deserialization of untrusted data
+    metadata: { cwe: "CWE-502" }
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+      - pattern: marshal.loads(...)
+  - id: py-eval-exec
+    languages: [python]
+    severity: ERROR
+    message: eval/exec of non-literal
+    metadata: { cwe: "CWE-95" }
+    patterns:
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: exec($X)
+      - pattern-not: eval("...")
+      - pattern-not: exec("...")
+  - id: py-requests-verify-false
+    languages: [python]
+    severity: ERROR
+    message: TLS verification disabled
+    metadata: { cwe: "CWE-295" }
+    pattern: requests.$M(..., verify=False, ...)
+  - id: py-sql-format-string
+    languages: [python]
+    severity: ERROR
+    message: SQL query built with string formatting/concatenation
+    metadata: { cwe: "CWE-89" }
+    pattern-either:
+      - pattern: $C.execute($S % ...)
+      - pattern: $C.execute($S.format(...))
+      - pattern: $C.execute(f"...$X...")
+      - pattern: $C.execute("..." + $X)
+  - id: py-flask-debug-true
+    languages: [python]
+    severity: WARNING
+    message: Flask debug mode enabled
+    metadata: { cwe: "CWE-489" }
+    pattern: $APP.run(..., debug=True, ...)
+  - id: rust-command-shell-non-literal
+    languages: [rust]
+    severity: ERROR
+    message: Command::new("sh"/"bash") -c with non-literal argument
+    metadata: { cwe: "CWE-78" }
+    pattern-either:
+      - pattern: Command::new("sh").arg("-c").arg($X)
+      - pattern: Command::new("bash").arg("-c").arg($X)
+  - id: rust-unsafe-from-raw-parts
+    languages: [rust]
+    severity: WARNING
+    message: slice::from_raw_parts with computed length
+    metadata: { cwe: "CWE-119" }
+    pattern: std::slice::from_raw_parts($P, $L)
+  - id: bash-curl-pipe-sh
+    languages: [bash]
+    severity: ERROR
+    message: remote script piped into a shell
+    metadata: { cwe: "CWE-494" }
+    pattern-regex: '(curl|wget)[^|\n]*\|\s*(sudo\s+)?(ba)?sh\b'
+  - id: dockerfile-run-curl-pipe-sh
+    languages: [dockerfile]
+    severity: ERROR
+    message: RUN downloads and executes remote script
+    metadata: { cwe: "CWE-494" }
+    pattern-regex: 'RUN[^\n]*(curl|wget)[^\n]*\|\s*(ba)?sh'
+  - id: gha-pull-request-target-checkout-head
+    languages: [yaml]
+    severity: ERROR
+    message: pull_request_target workflow checks out PR head (pwn request)
+    metadata: { cwe: "CWE-829" }
+    paths: { include: [".github/workflows/*.yml", ".github/workflows/*.yaml"] }
+    pattern-regex: '(?s)pull_request_target.*ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.(sha|ref)'
+  - id: gha-run-template-injection
+    languages: [yaml]
+    severity: ERROR
+    message: untrusted event field interpolated into run
+    metadata: { cwe: "CWE-94" }
+    paths: { include: [".github/workflows/*.yml", ".github/workflows/*.yaml"] }
+    pattern-regex: 'run:[^\n]*\$\{\{\s*github\.event\.(issue|pull_request|comment|review|head_commit|commits)[^}]*(title|body|message|ref|label|name)'
+  - id: tf-s3-public-acl
+    languages: [hcl]
+    severity: ERROR
+    message: S3 bucket with public ACL
+    metadata: { cwe: "CWE-284" }
+    pattern-regex: 'acl\s*=\s*"public-(read|read-write)"'
+  - id: tf-sg-open-world
+    languages: [hcl]
+    severity: ERROR
+    message: security group ingress open to 0.0.0.0/0
+    metadata: { cwe: "CWE-284" }
+    pattern-regex: 'ingress[^}]*cidr_blocks\s*=\s*\["0\.0\.0\.0/0"\]'

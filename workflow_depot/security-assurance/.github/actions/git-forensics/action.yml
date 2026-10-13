@@ -1,0 +1,19 @@
+name: Git forensics
+description: Inspects the raw Git object database and HEAD tree (not the working copy) with a locked-down git configuration. Emits SRC-GIT-FORENSICS.
+inputs:
+  source_path: { description: Path to the candidate checkout (fetch-depth 0), required: true }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; mkdir -p "$RESULTS_DIR/evidence"
+        OUT="$RESULTS_DIR/evidence/git-forensics.json"
+        timeout 900 python3 "$S/git_forensics.py" --repo "${{ inputs.source_path }}" --out "$OUT"; RC=$?
+        if [ $RC -ne 0 ] || [ ! -s "$OUT" ]; then
+          python3 "$S/result.py" --control SRC-GIT-FORENSICS --domain G --status TOOL_FAILURE --reason "git_forensics.py exit $RC" --tool git-forensics --tool-version 1; exit 0; fi
+        CRIT=$(python3 "$S/count_blocking.py" "$OUT")
+        STATUS=$(st "$CRIT")
+        python3 "$S/result.py" --control SRC-GIT-FORENSICS --domain G --status $STATUS --reason "$CRIT critical/high findings" \
+          --tool git-forensics --tool-version 1 --findings-json "$OUT" --evidence "$OUT" --duration-s $((SECONDS-T0)) \
+          --coverage "fsck, replace refs, grafts, alternates, hooks, local config, HEAD tree modes/paths/blobs (<=50MB), .gitattributes/.gitmodules, last 500 commit messages, checkout-vs-tree. Unreachable objects from other workspaces: NOT covered."

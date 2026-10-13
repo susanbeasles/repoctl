@@ -1,0 +1,11 @@
+name: Ensure results
+description: "Run with if: always() as the last step before upload. Emits TOOL_FAILURE for every control the job was expected to produce but did not (e.g. tool install failed with a digest mismatch), so the gate records the cause instead of a bare NOT_RUN."
+inputs:
+  expected: { description: Space-separated control ids this job must emit, required: true }
+  job_status: { description: "${{ job.status }}", required: true }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        python3 "${{ github.action_path }}/../../scripts/ensure_results.py" "${{ inputs.expected }}" "${{ inputs.job_status }}"

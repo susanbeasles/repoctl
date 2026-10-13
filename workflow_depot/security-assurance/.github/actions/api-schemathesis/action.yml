@@ -1,0 +1,25 @@
+name: API — Schemathesis
+description: Property-based API testing from an OpenAPI/GraphQL schema against an authorized target. NOT_APPLICABLE without schema+target. Emits API-SCHEMATHESIS.
+inputs:
+  schema_path: { description: Path to OpenAPI/GraphQL schema in the candidate, default: "" }
+  target_url: { description: Authorized base URL, default: "" }
+  authorization_ref: { description: Approval reference for the target, default: "" }
+  source_path: { description: Candidate checkout, required: true }
+  api_detected: { description: "true when an OpenAPI/GraphQL schema or web framework was detected", default: "false" }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"; R="${{ github.action_path }}/../../../policy/tool-registry.yml"
+        if [ -z "${{ inputs.schema_path }}" ] || [ -z "${{ inputs.target_url }}" ]; then
+          if [ "${{ inputs.api_detected }}" = "true" ]; then python3 "$S/result.py" --control API-SCHEMATHESIS --domain L --status POLICY_UNAVAILABLE --reason "API schema/web framework detected but api_schema_path/api_target_url not supplied; API testing is applicable and did not run" --tool schemathesis
+          else python3 "$S/result.py" --control API-SCHEMATHESIS --domain L --status NOT_APPLICABLE --reason "no API schema or web framework detected" --tool schemathesis; fi; exit 0; fi
+        [ -n "${{ inputs.authorization_ref }}" ] || { python3 "$S/result.py" --control API-SCHEMATHESIS --domain L --status POLICY_UNAVAILABLE --reason "target without authorization_ref" --tool schemathesis; exit 0; }
+        SV=$(python3 -c "import yaml;print(yaml.safe_load(open('$R'))['python_tools']['schemathesis'])")
+        pip install --disable-pip-version-check -q "schemathesis==$SV" >"$E/schemathesis-install.log" 2>&1 || { python3 "$S/result.py" --control API-SCHEMATHESIS --domain L --status TOOL_FAILURE --reason "pip install failed" --tool schemathesis; exit 0; }
+        timeout 1500 schemathesis run "${{ inputs.source_path }}/${{ inputs.schema_path }}" --url "${{ inputs.target_url }}" --checks all --max-examples 50 --workers 2 --report junit --report-junit-path "$E/schemathesis.junit.xml" >"$E/schemathesis.log" 2>&1; RC=$?
+        python3 "$S/normalize.py" --tool junit --in "$E/schemathesis.junit.xml" --out "$E/schemathesis.findings.json"; NF="$E/schemathesis.findings.json"
+        case $RC in 0) ST=PASS;; 1) ST=FAIL;; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+        python3 "$S/result.py" --control API-SCHEMATHESIS --domain L --status $ST --reason "schemathesis exit $RC; authorization ${{ inputs.authorization_ref }}" --tool schemathesis --tool-version "$SV" \
+          --findings-json "$E/schemathesis.findings.json" --evidence "$E/schemathesis.junit.xml" --duration-s $((SECONDS-T0)) --coverage "schema conformance, response validation, server errors; BOLA/IDOR needs auth matrix (GAP-API-AUTHZ)"

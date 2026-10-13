@@ -1,0 +1,15 @@
+name: Supply-chain analysis
+description: Install/lifecycle scripts, typosquats, dependency confusion, registry overrides, lockfile drift vs base, Rust build.rs/proc-macro/[patch]/.cargo config, Swift binaryTargets/plugins/branch pins, Python index overrides and active setup.py. Emits SCA-SUPPLY-CHAIN.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  base_ref: { description: Base SHA for lockfile drift (empty = skip drift), default: "" }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        timeout 600 python3 "$S/supply_chain.py" --repo "${{ inputs.source_path }}" --base-ref "${{ inputs.base_ref }}" --out "$E/supply-chain.findings.json"; RC=$?
+        N=$(python3 "$S/count_blocking.py" "$E/supply-chain.findings.json"); [ $RC -ne 0 ] && N=ERR
+        python3 "$S/result.py" --control SCA-SUPPLY-CHAIN --domain D --status $(st "$N") --reason "$N critical/high; base=${{ inputs.base_ref }}" --tool supply-chain --tool-version 1 --confidence heuristic \
+          --findings-json "$E/supply-chain.findings.json" --evidence "$E/supply-chain.findings.json" --duration-s $((SECONDS-T0)) --coverage "node/python/rust/swift manifests + lockfiles; maintainer transitions need registry metadata (GAP-SCA-MAINTAINER)"

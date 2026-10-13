@@ -1,0 +1,9 @@
+# This .gitignore file was automatically created by Hypothesis. Hypothesis gitignores
+# .hypothesis by default, because we generally recommend that .hypothesis not be checked
+# into version control.
+#
+# If you *would* like to check .hypothesis into version control, you should delete this
+# file. Hypothesis will not re-create this .gitignore unless .hypothesis is deleted (and
+# if it does, that's a bug - please report it!)
+
+*

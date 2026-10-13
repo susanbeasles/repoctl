@@ -1,0 +1,16 @@
+name: Hostile asset scan
+description: Structural analysis of SVG/XML, PNG/JPEG/GIF, fonts and archives (DTD/XXE, scripts, event handlers, foreignObject, dangerous URIs, appended payloads, magic mismatch, traversal). Emits ASSET-HOSTILE.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        timeout 900 python3 "$S/asset_scan.py" --root "${{ inputs.source_path }}" --out "$E/assets.findings.json"; RC=$?
+        [ $RC -ne 0 ] && { python3 "$S/result.py" --control ASSET-HOSTILE --domain H --status TOOL_FAILURE --reason "asset_scan.py exit $RC" --tool asset-scan --tool-version 1; exit 0; }
+        N=$(python3 "$S/count_blocking.py" "$E/assets.findings.json")
+        python3 "$S/result.py" --control ASSET-HOSTILE --domain H --status $(st "$N") --reason "$N critical/high findings" \
+          --tool asset-scan --tool-version 1 --findings-json "$E/assets.findings.json" --evidence "$E/assets.findings.json" --duration-s $((SECONDS-T0)) \
+          --coverage "structural only; no sandboxed rendering; WOFF2 tables not decompressed"

@@ -1,0 +1,108 @@
+name: Ecosystem-specific SAST/SCA
+description: Bandit + pip-audit (Python); eslint-plugin-security with the DEPOT's pinned toolchain and config inside a bubblewrap sandbox (project config/plugins never loaded); npm/pnpm/yarn audit. Emits SAST-BANDIT, SCA-PIP-AUDIT, SCA-NPM-AUDIT, SAST-ESLINT-SECURITY.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  ecosystems: { description: JSON from detect-ecosystems, required: true }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set +e; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"; R="${{ github.action_path }}/../../../policy/tool-registry.yml"
+        ECO='${{ inputs.ecosystems }}'; has() { python3 -c "import json,sys;d=json.loads(sys.argv[1]);print(str(d.get(sys.argv[2],False)).lower())" "$ECO" "$1"; }
+        pyver() { python3 -c "import yaml;print(yaml.safe_load(open('$R'))['python_tools']['$1'])"; }
+        cd "${{ inputs.source_path }}"
+        # ---------- Python ----------
+        if [ "$(has python)" = true ]; then
+          BV=$(pyver bandit); PV=$(pyver pip-audit); T0=$SECONDS
+          pip install --disable-pip-version-check -q "bandit==$BV" "pip-audit==$PV" >"$E/py-tools-install.log" 2>&1
+          timeout 600 bandit -r . -f json -o "$E/bandit.json" -x './.git,./node_modules,./.venv,./venv,./tests,./test' -ll >"$E/bandit.log" 2>&1; RC=$?
+          python3 "$S/normalize.py" --tool bandit --in "$E/bandit.json" --out "$E/bandit.findings.json"; NF="$E/bandit.findings.json"
+          case $RC in 0) ST=PASS;; 1) ST=FAIL;; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+          python3 "$S/result.py" --control SAST-BANDIT --domain A --status $ST --reason "bandit exit $RC" --tool bandit --tool-version "$BV" --findings-json "$E/bandit.findings.json" --evidence "$E/bandit.findings.json" --duration-s $((SECONDS-T0))
+          T0=$SECONDS; REQ=$(ls requirements*.txt 2>/dev/null | head -1)
+          if [ -n "$REQ" ]; then timeout 600 pip-audit -r "$REQ" --no-deps --skip-editable -f json -o "$E/pip-audit.json" >"$E/pip-audit.log" 2>&1; RC=$?
+          elif [ -f pyproject.toml ]; then timeout 600 pip-audit -f json -o "$E/pip-audit.json" >"$E/pip-audit.log" 2>&1; RC=$?
+          else RC=99; fi
+          if [ $RC -eq 99 ]; then python3 "$S/result.py" --control SCA-PIP-AUDIT --domain D --status NOT_APPLICABLE --reason "no requirements*.txt or pyproject.toml" --tool pip-audit --tool-version "$PV"
+          else python3 "$S/normalize.py" --tool pip-audit --in "$E/pip-audit.json" --out "$E/pip-audit.findings.json"; NF="$E/pip-audit.findings.json"
+            case $RC in 0) ST=PASS;; 1) ST=FAIL;; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+            python3 "$S/result.py" --control SCA-PIP-AUDIT --domain D --status $ST --reason "pip-audit exit $RC" --tool pip-audit --tool-version "$PV" --findings-json "$E/pip-audit.findings.json" --evidence "$E/pip-audit.findings.json" --duration-s $((SECONDS-T0)); fi
+        else
+          python3 "$S/result.py" --control SAST-BANDIT --domain A --status NOT_APPLICABLE --reason "no Python detected" --tool bandit
+          python3 "$S/result.py" --control SCA-PIP-AUDIT --domain D --status NOT_APPLICABLE --reason "no Python detected" --tool pip-audit
+        fi
+        # ---------- Node ----------
+        if [ "$(has node)" = true ]; then
+          T0=$SECONDS; R2="${{ github.action_path }}/../../../policy/tool-registry.yml"
+          ntv() { python3 -c "import yaml;print(yaml.safe_load(open('$R2'))['node_tools']['$1'])"; }
+          # Depot-owned ESLint toolchain, pinned exact versions, no project scripts/plugins, mounted read-only into the sandbox.
+          TC="$RUNNER_TEMP/eslint-tc"; mkdir -p "$TC"; ( cd "$TC" && npm init -y >/dev/null 2>&1 && npm install --ignore-scripts --no-audit --no-fund --save-exact "eslint@$(ntv eslint)" "eslint-plugin-security@$(ntv eslint-plugin-security)" "@eslint/js@$(ntv '@eslint/js')" >"$E/eslint-toolchain-install.log" 2>&1 ); TRC=$?
+          cp "${{ github.action_path }}/../../../rules/eslint/eslint.config.mjs" "$TC/eslint.config.mjs"
+          NJS=$(git ls-files -- '*.js' '*.mjs' '*.cjs' '*.jsx' '*.ts' '*.tsx' | grep -v -e node_modules -e '\.min\.js$' | wc -l)
+          if [ $TRC -ne 0 ]; then python3 "$S/result.py" --control SAST-ESLINT-SECURITY --domain A --status TOOL_FAILURE --reason "depot eslint toolchain install failed" --tool eslint
+          elif [ "$NJS" -eq 0 ]; then python3 "$S/result.py" --control SAST-ESLINT-SECURITY --domain A --status NOT_APPLICABLE --reason "package.json present but no JS/TS source files tracked (manifest-only project); supply chain still covered by SCA-SUPPLY-CHAIN" --tool eslint
+          else
+            OUT="$RUNNER_TEMP/eslint-out"; rm -rf "$OUT"; mkdir -p "$OUT"
+            NODEBIN=$(command -v node)
+            "$S/sandbox_exec.sh" --src "$PWD" --out "$OUT" --ro "$TC:/toolchain" --ro "$(dirname "$NODEBIN"):/nodebin" --timeout 900 -- /bin/sh -c "cd /work && /nodebin/node /toolchain/node_modules/eslint/bin/eslint.js --no-config-lookup --config /toolchain/eslint.config.mjs --format json --output-file /out/eslint.json . ; echo \$? > /out/rc"; SRC_RC=$?
+            RC=$(cat "$OUT/rc" 2>/dev/null || echo 99); cp "$OUT/eslint.json" "$E/eslint.json" 2>/dev/null
+            python3 - "$E/eslint.json" "$E/eslint.findings.json" <<'PY'
+        import json,sys
+        try: d=json.load(open(sys.argv[1]))
+        except Exception as e: json.dump({"items":[],"parse_error":f"eslint output unreadable: {e}"},open(sys.argv[2],"w")); sys.exit(3)
+        items=[{"severity":"high" if m.get("severity")==2 else "medium","rule":m.get("ruleId") or "","path":f.get("filePath",""),"line":m.get("line"),"message":m.get("message","")[:200]} for f in d for m in f.get("messages",[]) if (m.get("ruleId") or "").startswith("security/")]
+        json.dump({"items":items},open(sys.argv[2],"w"))
+        PY
+            N=$(python3 "$S/count_blocking.py" "$E/eslint.findings.json" critical,high,medium); { [ "$SRC_RC" -ge 124 ] || [ "$RC" -ge 2 ]; } && N=ERR
+            python3 "$S/result.py" --control SAST-ESLINT-SECURITY --domain A --status $(st "$N") --reason "eslint exit $RC in sandbox (project config/plugins never loaded), $N findings" --tool eslint-plugin-security --tool-version "$(ntv eslint-plugin-security) on eslint $(ntv eslint)" \
+              --ruleset "rules/eslint@$(sha256sum "$TC/eslint.config.mjs" | cut -c1-16)" --findings-json "$E/eslint.findings.json" --evidence "$E/eslint.findings.json" --duration-s $((SECONDS-T0)) --coverage "depot config only; bubblewrap sandbox: ro source, no network, scrubbed env"
+          fi
+          # ---- package-manager audit: npm / pnpm / yarn ----
+          T0=$SECONDS
+          if [ -f package-lock.json ]; then
+            timeout 900 npm ci --ignore-scripts --no-audit --no-fund >"$E/npm-ci.log" 2>&1; CI_RC=$?
+            timeout 300 npm audit --json --audit-level=none >"$E/npm-audit.json" 2>"$E/npm-audit.err"; RC=$?
+            python3 "$S/normalize.py" --tool npm-audit --in "$E/npm-audit.json" --out "$E/npm-audit.findings.json"; NF="$E/npm-audit.findings.json"
+            if [ $CI_RC -ne 0 ] || grep -q '"parse_error": "' "$NF"; then ST=TOOL_FAILURE; elif [ $RC -eq 0 ]; then ST=PASS; elif [ $RC -eq 1 ]; then ST=FAIL; else ST=TOOL_FAILURE; fi
+            python3 "$S/result.py" --control SCA-NPM-AUDIT --domain D --status $ST --reason "npm ci --ignore-scripts exit $CI_RC, npm audit exit $RC" --tool npm --tool-version "$(npm -v)" --findings-json "$NF" --evidence "$NF" --duration-s $((SECONDS-T0))
+            # installed tree vs lockfile + npm cache content inspection (CACHE-CONTENT is emitted by the cache-content action in this job)
+            echo "node_modules_installed=true" >> "$GITHUB_ENV"
+          elif [ -f pnpm-lock.yaml ]; then
+            command -v pnpm >/dev/null || npm install -g --ignore-scripts pnpm@10 >/dev/null 2>&1
+            timeout 300 pnpm audit --json --lockfile-only >"$E/pnpm-audit.json" 2>"$E/pnpm-audit.err"; RC=$?
+            python3 - "$E/pnpm-audit.json" "$E/npm-audit.findings.json" <<'PY'
+        import json,sys
+        try: d=json.load(open(sys.argv[1]))
+        except Exception as e: json.dump({"items":[],"parse_error":str(e)},open(sys.argv[2],"w")); sys.exit(3)
+        items=[{"severity":a.get("severity","unknown"),"rule":f"GHSA/{a.get('github_advisory_id','')}" if a.get("github_advisory_id") else "pnpm-audit","package":f"{a.get('module_name')}@{a.get('vulnerable_versions','')}","path":"pnpm-lock.yaml","message":a.get("title","")[:200]} for a in d.get("advisories",{}).values()]
+        json.dump({"items":items},open(sys.argv[2],"w"))
+        PY
+            N=$(python3 "$S/count_blocking.py" "$E/npm-audit.findings.json" critical,high); [ $RC -gt 1 ] && N=ERR
+            python3 "$S/result.py" --control SCA-NPM-AUDIT --domain D --status $(st "$N") --reason "pnpm audit exit $RC" --tool pnpm --tool-version "$(pnpm -v 2>/dev/null)" --findings-json "$E/npm-audit.findings.json" --evidence "$E/npm-audit.findings.json" --duration-s $((SECONDS-T0))
+          elif [ -f yarn.lock ]; then
+            if grep -q "__metadata" yarn.lock; then timeout 300 corepack yarn npm audit --all --recursive --json >"$E/yarn-audit.json" 2>"$E/yarn-audit.err"; RC=$?; MODE=berry
+            else timeout 300 npx --yes --package yarn@1 yarn audit --json >"$E/yarn-audit.json" 2>"$E/yarn-audit.err"; RC=$?; MODE=classic; fi
+            python3 - "$E/yarn-audit.json" "$E/npm-audit.findings.json" <<'PY'
+        import json,sys
+        items=[]; bad=None
+        for l in open(sys.argv[1],errors="replace"):
+            l=l.strip()
+            if not l.startswith("{"): continue
+            try: r=json.loads(l)
+            except Exception: bad="non-JSON line"; continue
+            if r.get("type")=="auditAdvisory":
+                a=r["data"]["advisory"]; items.append({"severity":a.get("severity","unknown"),"rule":f"GHSA/{a.get('github_advisory_id','')}","package":f"{a.get('module_name')}@{a.get('vulnerable_versions','')}","path":"yarn.lock","message":a.get("title","")[:200]})
+            elif "value" in r and "children" in r:
+                items.append({"severity":str(r["children"].get("Severity","unknown")).lower(),"rule":r.get("value",""),"package":r["children"].get("Vulnerable Versions",""),"path":"yarn.lock","message":str(r["children"].get("Issue",""))[:200]})
+        json.dump({"items":items,"parse_error":bad},open(sys.argv[2],"w"))
+        PY
+            N=$(python3 "$S/count_blocking.py" "$E/npm-audit.findings.json" critical,high); [ $RC -gt 1 ] && [ "$MODE" = berry ] && N=ERR
+            python3 "$S/result.py" --control SCA-NPM-AUDIT --domain D --status $(st "$N") --reason "yarn ($MODE) audit exit $RC" --tool yarn --findings-json "$E/npm-audit.findings.json" --evidence "$E/npm-audit.findings.json" --duration-s $((SECONDS-T0))
+          else
+            python3 "$S/result.py" --control SCA-NPM-AUDIT --domain D --status FAIL --reason "package.json without any lockfile: dependency tree is unpinned and cannot be audited" --tool npm
+          fi
+        else
+          python3 "$S/result.py" --control SCA-NPM-AUDIT --domain D --status NOT_APPLICABLE --reason "no Node detected" --tool npm
+          python3 "$S/result.py" --control SAST-ESLINT-SECURITY --domain A --status NOT_APPLICABLE --reason "no Node detected" --tool eslint
+        fi

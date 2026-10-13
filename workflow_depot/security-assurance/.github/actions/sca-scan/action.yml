@@ -1,0 +1,86 @@
+name: SCA — OSV-Scanner, Trivy, Grype, lockfile integrity
+description: Three independent SCA engines over manifests/lockfiles plus lockfile-integrity policy. Emits SCA-OSV, SCA-TRIVY, SCA-GRYPE, SCA-LOCKFILE-INTEGRITY.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  sbom_path: { description: CycloneDX SBOM from sbom-generate (Grype input), required: true }
+  allowed_registries: { description: Space-separated allowed package registry hosts, default: "registry.npmjs.org registry.yarnpkg.com pypi.org files.pythonhosted.org crates.io static.crates.io index.crates.io" }
+runs:
+  using: composite
+  steps:
+    - uses: ./.security-depot/.github/actions/install-tool
+      id: osv
+      with: { tool: osv-scanner }
+    - uses: ./.security-depot/.github/actions/install-tool
+      id: trivy
+      with: { tool: trivy }
+    - uses: ./.security-depot/.github/actions/install-tool
+      id: grype
+      with: { tool: grype }
+    - shell: bash
+      run: |
+        set +e; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"; SRC="${{ inputs.source_path }}"
+        # OSV
+        T0=$SECONDS; timeout 600 osv-scanner scan source --recursive --format json --output "$E/osv.json" "$SRC" >"$E/osv.log" 2>&1; RC=$?
+        python3 "$S/normalize.py" --tool osv --in "$E/osv.json" --out "$E/osv.findings.json"; NF="$E/osv.findings.json"
+        case $RC in 0) ST=PASS;; 1) ST=FAIL;; 128) ST=INCONCLUSIVE; REASON="osv-scanner exit 128 (no package sources, or parse error - verify on first run)";; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+        python3 "$S/result.py" --control SCA-OSV --domain D --status $ST --reason "${REASON:-osv-scanner exit $RC}" --tool osv-scanner --tool-version "${{ steps.osv.outputs.version }}" --tool-digest "${{ steps.osv.outputs.digest }}" \
+          --db-revision "api.osv.dev@$(date -u +%FT%TZ)" --findings-json "$E/osv.findings.json" --evidence "$E/osv.findings.json" --duration-s $((SECONDS-T0)); unset REASON
+        # Trivy fs (vuln + secret), DB pinned to the run time
+        T0=$SECONDS; timeout 900 trivy fs --scanners vuln,secret --format json --output "$E/trivy-fs.json" --exit-code 0 --no-progress --skip-dirs .git "$SRC" >"$E/trivy-fs.log" 2>&1; RC=$?
+        python3 "$S/normalize.py" --tool trivy --in "$E/trivy-fs.json" --out "$E/trivy-fs.findings.json"; NF="$E/trivy-fs.findings.json"
+        DB=$(trivy --cache-dir "$HOME/.cache/trivy" version 2>/dev/null | grep -i 'UpdatedAt' | head -1 | tr -s ' ' || true)
+        N=$(python3 "$S/count_blocking.py" "$E/trivy-fs.findings.json")
+        if [ $RC -ne 0 ] || [ "$N" = ERR ]; then ST=TOOL_FAILURE; elif [ "$N" -gt 0 ]; then ST=FAIL; else ST=PASS; fi
+        python3 "$S/result.py" --control SCA-TRIVY --domain D --status $ST --reason "trivy exit $RC, $N critical/high" --tool trivy --tool-version "${{ steps.trivy.outputs.version }}" --tool-digest "${{ steps.trivy.outputs.digest }}" \
+          --db-revision "$DB" --findings-json "$E/trivy-fs.findings.json" --evidence "$E/trivy-fs.findings.json" --duration-s $((SECONDS-T0))
+        # Grype from the SBOM (so SBOM completeness and SCA share one inventory)
+        T0=$SECONDS
+        if [ -s "${{ inputs.sbom_path }}" ]; then
+          timeout 900 grype "sbom:${{ inputs.sbom_path }}" -o json --file "$E/grype.json" --fail-on high >"$E/grype.log" 2>&1; RC=$?
+          python3 "$S/normalize.py" --tool grype --in "$E/grype.json" --out "$E/grype.findings.json"; NF="$E/grype.findings.json"
+          case $RC in 0) ST=PASS;; 1) ST=FAIL;; *) ST=TOOL_FAILURE;; esac; grep -q '"parse_error": "' "$NF" 2>/dev/null && ST=TOOL_FAILURE
+          python3 "$S/result.py" --control SCA-GRYPE --domain D --status $ST --reason "grype exit $RC" --tool grype --tool-version "${{ steps.grype.outputs.version }}" --tool-digest "${{ steps.grype.outputs.digest }}" \
+            --db-revision "$(grype db status 2>/dev/null | grep -i built | tr -s ' ')" --findings-json "$E/grype.findings.json" --evidence "$E/grype.findings.json" --duration-s $((SECONDS-T0))
+        else python3 "$S/result.py" --control SCA-GRYPE --domain D --status TOOL_FAILURE --reason "SBOM input missing" --tool grype; fi
+        # Lockfile integrity policy
+        T0=$SECONDS; python3 - "$SRC" "$E/lockfile.findings.json" ${{ inputs.allowed_registries }} <<'PY'
+        import json,os,re,sys
+        src,out,allowed=sys.argv[1],sys.argv[2],set(sys.argv[3:]); items=[]
+        def add(sev,rule,path,msg): items.append({"severity":sev,"rule":rule,"path":path,"message":msg})
+        pl=os.path.join(src,"package-lock.json"); pj=os.path.join(src,"package.json")
+        if os.path.exists(pj) and not (os.path.exists(pl) or os.path.exists(os.path.join(src,"yarn.lock")) or os.path.exists(os.path.join(src,"pnpm-lock.yaml"))):
+            add("high","LOCK-MISSING","package.json","package.json without any lockfile")
+        if os.path.exists(pl):
+            d=json.load(open(pl)); pk=d.get("packages",{})
+            if d.get("lockfileVersion",0)<2: add("high","LOCK-VERSION","package-lock.json","lockfileVersion < 2 (no full integrity graph)")
+            for name,meta in pk.items():
+                if not name or meta.get("link"): continue
+                res=meta.get("resolved",""); integ=meta.get("integrity","")
+                if res and not integ and "node_modules" in name: add("high","LOCK-NO-INTEGRITY","package-lock.json",f"{name} resolved without integrity hash")
+                if res:
+                    m=re.match(r"(\w+)://([^/]+)/",res)
+                    if not m: add("critical","LOCK-BAD-RESOLVED","package-lock.json",f"{name} resolved={res[:80]}")
+                    elif m.group(1) in ("git","git+ssh","git+https","file","http"): add("critical","LOCK-UNSAFE-SOURCE","package-lock.json",f"{name} from {m.group(1)}: source")
+                    elif m.group(2) not in allowed: add("high","LOCK-REGISTRY","package-lock.json",f"{name} from non-allowlisted host {m.group(2)}")
+                if meta.get("hasInstallScript"): add("medium","LOCK-INSTALL-SCRIPT","package-lock.json",f"{name} declares install scripts")
+        for lf in ("uv.lock","poetry.lock"):
+            p=os.path.join(src,lf)
+            if os.path.exists(p):
+                t=open(p,errors="replace").read()
+                if "sha256" not in t: add("high","LOCK-NO-HASHES",lf,"no sha256 hashes in lockfile")
+                for m in re.finditer(r"(?:url|source)\s*=\s*\"(https?://[^/\"]+)",t):
+                    h=m.group(1).split("//",1)[1]
+                    if h not in allowed: add("high","LOCK-REGISTRY",lf,f"non-allowlisted index {h}")
+        for rf in [f for f in os.listdir(src) if re.match(r"requirements.*\.txt$",f)]:
+            t=open(os.path.join(src,rf),errors="replace").read()
+            if "--hash=" not in t: add("medium","REQ-NO-HASHES",rf,"requirements without --hash pins (use pip-compile --generate-hashes)")
+            if re.search(r"^(git\+|https?://|-e )",t,re.M): add("high","REQ-UNSAFE-SOURCE",rf,"VCS/URL/editable requirement")
+        cl=os.path.join(src,"Cargo.lock")
+        if os.path.exists(cl):
+            t=open(cl,errors="replace").read()
+            for m in re.finditer(r'source = "(git\+[^"]+)"',t): add("high","LOCK-UNSAFE-SOURCE","Cargo.lock",f"git dependency {m.group(1)[:80]}")
+        json.dump({"items":items},open(out,"w"),indent=2)
+        PY
+        N=$(python3 "$S/count_blocking.py" "$E/lockfile.findings.json")
+        python3 "$S/result.py" --control SCA-LOCKFILE-INTEGRITY --domain D --status $(st "$N") --reason "$N critical/high" --tool lockfile-policy --tool-version 1 \
+          --findings-json "$E/lockfile.findings.json" --evidence "$E/lockfile.findings.json" --duration-s $((SECONDS-T0)) --coverage "npm/uv/poetry/requirements/Cargo; yarn/pnpm lock semantics not yet parsed (GAP-SCA-YARNPNPM)"

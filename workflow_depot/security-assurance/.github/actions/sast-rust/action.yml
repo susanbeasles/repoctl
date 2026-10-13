@@ -1,0 +1,61 @@
+name: Rust security (cargo-audit, cargo-deny)
+description: cargo-audit over Cargo.lock (no toolchain needed; gate) and cargo-deny advisories/sources/bans (needs cargo for `cargo metadata`, which does not run build scripts). Emits SAST-RUST and SCA-CARGO-DENY.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  applicable: { description: "true when Rust detected", required: true }
+runs:
+  using: composite
+  steps:
+    - uses: ./.security-depot/.github/actions/install-tool
+      if: inputs.applicable == 'true'
+      id: ca
+      with: { tool: cargo-audit }
+    - uses: ./.security-depot/.github/actions/install-tool
+      if: inputs.applicable == 'true'
+      id: cd
+      with: { tool: cargo-deny }
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"
+        if [ "${{ inputs.applicable }}" != "true" ]; then python3 "$S/result.py" --control SAST-RUST --domain A --status NOT_APPLICABLE --reason "no Rust detected" --tool cargo-audit; python3 "$S/result.py" --control SCA-CARGO-DENY --domain D --status NOT_APPLICABLE --reason "no Rust detected" --tool cargo-deny; exit 0; fi
+        cd "${{ inputs.source_path }}"
+        [ -f Cargo.lock ] || { python3 "$S/result.py" --control SAST-RUST --domain A --status FAIL --reason "Cargo.toml present without Cargo.lock: dependencies are unpinned and cannot be audited" --tool cargo-audit; python3 "$S/result.py" --control SCA-CARGO-DENY --domain D --status NOT_RUN --reason "no Cargo.lock" --tool cargo-deny; exit 0; }
+        timeout 600 cargo-audit audit --json -f Cargo.lock > "$E/cargo-audit.json" 2>"$E/cargo-audit.err"; RC=$?
+        python3 - "$E/cargo-audit.json" "$E/cargo-audit.findings.json" <<'PY'
+        import json,sys
+        try: d=json.load(open(sys.argv[1]))
+        except Exception as e: json.dump({"items":[],"parse_error":str(e)},open(sys.argv[2],"w")); sys.exit(3)
+        items=[]
+        for v in d.get("vulnerabilities",{}).get("list",[]):
+            a=v["advisory"]; cv=a.get("cvss") or ""; sev="high"
+            items.append({"severity":sev,"rule":a["id"],"package":f"{v['package']['name']}@{v['package']['version']}","path":"Cargo.lock","message":a.get("title","")[:200],"cvss":cv,"aliases":a.get("aliases",[])[:4]})
+        for k,sev in (("unmaintained","medium"),("unsound","high"),("yanked","high"),("notice","low")):
+            for w in d.get("warnings",{}).get(k,[]) or []:
+                p=w.get("package",{}); items.append({"severity":sev,"rule":(w.get("advisory") or {}).get("id",k.upper()),"package":f"{p.get('name')}@{p.get('version')}","path":"Cargo.lock","message":((w.get("advisory") or {}).get("title") or k)[:200]})
+        json.dump({"items":items,"db":d.get("database",{})},open(sys.argv[2],"w"),indent=2)
+        PY
+        N=$(python3 "$S/count_blocking.py" "$E/cargo-audit.findings.json"); [ $RC -gt 1 ] && N=ERR
+        python3 "$S/result.py" --control SAST-RUST --domain A --status $(st "$N") --reason "cargo-audit exit $RC, $N critical/high (RustSEC + yanked/unsound)" --tool cargo-audit --tool-version "${{ steps.ca.outputs.version }}" --tool-digest "${{ steps.ca.outputs.digest }}" \
+          --db-revision "$(python3 -c "import json;print(json.load(open('$E/cargo-audit.findings.json')).get('db',{}).get('advisory-count',''))" 2>/dev/null) advisories" --findings-json "$E/cargo-audit.findings.json" --evidence "$E/cargo-audit.findings.json" --duration-s $((SECONDS-T0)) \
+          --coverage "RustSEC advisories, yanked, unmaintained, unsound; unsafe/build.rs/proc-macro inventory is in SCA-SUPPLY-CHAIN; clippy needs the project toolchain (sandboxed build tier, not here)"
+        T0=$SECONDS
+        if command -v cargo >/dev/null; then
+          [ -f deny.toml ] || cp "${{ github.action_path }}/../../../rules/cargo-deny/deny.toml" deny.toml
+          timeout 600 cargo-deny --format json --manifest-path Cargo.toml check advisories sources bans 2>"$E/cargo-deny.json" >/dev/null; RC=$?
+          python3 - "$E/cargo-deny.json" "$E/cargo-deny.findings.json" <<'PY'
+        import json,sys
+        items=[]; bad=None
+        for l in open(sys.argv[1],errors="replace"):
+            l=l.strip()
+            if not l.startswith("{"): continue
+            try: r=json.loads(l)
+            except Exception: bad="non-JSON line in cargo-deny output"; continue
+            if r.get("type")=="diagnostic":
+                f=r.get("fields",{}); sev={"error":"high","warning":"medium","note":"low","help":"info"}.get(f.get("severity",""),"unknown")
+                items.append({"severity":sev,"rule":f.get("code",""),"path":"Cargo.lock","message":f.get("message","")[:200]})
+            elif r.get("type")=="log" and r.get("fields",{}).get("level")=="ERROR": bad=r["fields"].get("message","")[:200]
+        json.dump({"items":items,"parse_error":bad},open(sys.argv[2],"w"),indent=2)
+        PY
+          N=$(python3 "$S/count_blocking.py" "$E/cargo-deny.findings.json"); [ $RC -gt 1 ] && N=ERR
+          python3 "$S/result.py" --control SCA-CARGO-DENY --domain D --status $(st "$N") --reason "cargo-deny exit $RC" --tool cargo-deny --tool-version "${{ steps.cd.outputs.version }}" --tool-digest "${{ steps.cd.outputs.digest }}" --ruleset "deny.toml@$(sha256sum deny.toml | cut -c1-16)" --findings-json "$E/cargo-deny.findings.json" --evidence "$E/cargo-deny.findings.json" --duration-s $((SECONDS-T0))
+        else python3 "$S/result.py" --control SCA-CARGO-DENY --domain D --status NOT_RUN --reason "cargo toolchain not on PATH (cargo-deny needs cargo metadata)" --tool cargo-deny --tool-version "${{ steps.cd.outputs.version }}"; fi

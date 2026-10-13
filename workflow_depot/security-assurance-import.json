@@ -1,0 +1,388 @@
+{
+  "archive_sha256": "3dc161f24877cf45e600c00d403b8c2256c81ccc91d593147b25b346e10b1aea",
+  "library_file_id": "libfile_dbbdebaf99108191b27038edbce0d4cc",
+  "files": [
+    {
+      "path": ".github/actions/git-forensics/action.yml",
+      "sha256": "11747176a57e80ca824f6a78706a38f12ac3139e3767ca4961d907a9b5baea11",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/gate-evaluate/action.yml",
+      "sha256": "6dd258055aec1d19cf15216919e7332e75832133e2058993d8dc18447cc16027",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/declare-unavailable/action.yml",
+      "sha256": "9d11acae0f297c9a0c8fae5193bda4159f9dc23a006f4c02a8f4c246bd3a97f7",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/binary-forensics/action.yml",
+      "sha256": "df2a076a04b7908eeefd17a2d9f166fe7958d52d97f43dd811a77e967c7d9ae3",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/sandbox-exec/action.yml",
+      "sha256": "132b3b690e8316438821f136b2587d63973b1cf296b43bbd39a4752964d352bd",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/sast-ecosystem/action.yml",
+      "sha256": "670dc2780959593087e3782374b3bd0158f6b31f4a7c3071b842f6fec4543b0c",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/sast-shellcheck/action.yml",
+      "sha256": "773c1bbdf94aabcacbf7791e26976afcb292b401ace0467eab11c1d839ddfda1",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/sast-semgrep/action.yml",
+      "sha256": "af6ccc2a4d8995e6d8d9b3994a7d88bd8eeff9aad2d6aa135031f712dd1a0868",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/supply-chain/action.yml",
+      "sha256": "98f782a99c59f05e3df422c62f7a1d02a49a741a43998c5b320a5bea2c83b290",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/cache-content/action.yml",
+      "sha256": "af15cc58405aca7e70d4de6e6173beb41102622cd72fe987d7115d8c8509dd85",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/sbom-generate/action.yml",
+      "sha256": "2f5824d0715af1b3eeb41770533e69eac715da315cc46f88a3b2ac9310bad47a",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/secrets-scan/action.yml",
+      "sha256": "7cd8509315f740cf4a4cb2296cc64c226e18ea1b9272686510c0908ec12772e6",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/api-schemathesis/action.yml",
+      "sha256": "2f21f938982c4693c364d516d8bfa86f6c07706c31060203c127278d5bd7f278",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/cache-policy/action.yml",
+      "sha256": "dfcb5a89a9dfef3c85cdf33ccc793ea34e797311198927ca6c4c3210ed1d4c35",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/sast-rust/action.yml",
+      "sha256": "63038d3de51acac7d59e238a237b7c01cdace05f8648427e3b867524754fd28e",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/ai-injection-scan/action.yml",
+      "sha256": "c20db9297efa42149835a6b7f749b97e796907c04adf22bf1cf347f0a7468433",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/sast-codeql/action.yml",
+      "sha256": "fad3406810833ecd21f4ee66c0bc30ce721247f418c212ea87136ae00744213d",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/sca-scan/action.yml",
+      "sha256": "706b3f4cc55026d897a74fa25c1c3673736be92314521647336c10aeabd5e3fe",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/asset-scan/action.yml",
+      "sha256": "6a3a2bc643b38529b39003eabe42168e25e69164eb95b4282c3da02b6b117af5",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/sast-swift/action.yml",
+      "sha256": "868bad8d4e27da5ebfb369d35babe706adbf51596447f824f84c125bbbcd8b19",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/external-evidence/action.yml",
+      "sha256": "fd24ed3e0459219e7f17ddc21a138837a45d822583624ee3725b4944f6b1e4fb",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/ensure-results/action.yml",
+      "sha256": "33a30bbd9b3d20f470004e9122fea0474aa47899759ae127f3aebd7f0196f300",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/detect-ecosystems/action.yml",
+      "sha256": "98f968e9d71fb89504b0b44a377607589cd05808138c20b9dce7b3af0782f98d",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/iac-scan/action.yml",
+      "sha256": "807dbfba53edb639cbd099a93110e231e88aa0350b84025306070c870ea38e09",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/ai-review/action.yml",
+      "sha256": "efdb80f533715b3493cf75c534c4c1e1732c422d57f505da29d700e97ca8e231",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/install-tool/action.yml",
+      "sha256": "95f96def6e90978c0e05dbf2c2427250d3c5c181803529f762da444b99022dd5",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/malware-scan/action.yml",
+      "sha256": "15de11bab3910b1d78b0b1f0be5058d400994f38cb87e22116f96ad527cc35dc",
+      "mode": 420
+    },
+    {
+      "path": ".github/actions/dast-zap/action.yml",
+      "sha256": "3aa0bb17fc6130181aa8c67fe1a120eb2cd089cd4d439a6ff05f8c9571ce0e6a",
+      "mode": 420
+    },
+    {
+      "path": ".github/workflows/caller-example.yml",
+      "sha256": "d363fdcf8895ea2f8cccacbae2106aad2ffe114b93b55ed2db5d83c13acb23ca",
+      "mode": 420
+    },
+    {
+      "path": ".github/workflows/security-assurance.yml",
+      "sha256": "3999a06eb8a8114b213889641496a5fecc237038e0d1267c0fa754a48f980b41",
+      "mode": 420
+    },
+    {
+      "path": ".github/workflows/scanner-qualification.yml",
+      "sha256": "de4dd868fb3ebb5fc4b7e11416262f19cba5b6ba7ce39416cc5762a7b1d45b47",
+      "mode": 420
+    },
+    {
+      "path": ".github/workflows/security-deep-scan.yml",
+      "sha256": "a657146576070459ef5938ad136a9ab0c15d996bee0fbf7a0e73695739c51215",
+      "mode": 420
+    },
+    {
+      "path": ".github/scripts/verify_evidence.py",
+      "sha256": "fa2519c62adba4a1c0726119cbcf2af52cf3e99525cf0b4f61aa574a19f20c29",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/asset_scan.py",
+      "sha256": "ee12a2fe0a5262b3ae2b5e4abc9a907070d138d82af5ebc0ef536c812eea501e",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/detect_ecosystems.py",
+      "sha256": "f74863e748aa9e7760fdb21bbb5e41c2ceb26ada6965bed68b9213957d0fb939",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/phi_scrub.py",
+      "sha256": "f234dc4d6aaabd1aab6aa8abe327b6c736531882bf154d32b78bc6b12401ec1d",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/normalize.py",
+      "sha256": "c1f3cb7b43aa571cbf8b55196a213af6162afb663ace2dfa3e6ab6bd053d6ba3",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/shell_audit.py",
+      "sha256": "9c6062dd956ded82aa520e0695e98294d1b437dccaae3df4f206bf4df87dcf4a",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/ensure_results.py",
+      "sha256": "244f0dbb193aec1fb25a4503e221bdf05fc4964823623fb17a83897f1af2e52a",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/sandbox_exec.sh",
+      "sha256": "7c72ce46110ac43fe6cdd61c989a93b9c53662d6fc047fa5973f1e9b1464e14d",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/install_tool.py",
+      "sha256": "8df14fe81d08283744a3cf563ccf3f7ffdc64ba4a724ea20759ad608747395df",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/gate.py",
+      "sha256": "3e246a2c22eb635783e4182067d7f541882af1ad61cd612c3385dadbeabafddd",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/ai_injection_scan.py",
+      "sha256": "da0b8dbb4b7b07d7ca389e0a93cfbe105565955245551392698e0d9cc9d6b7c9",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/result.py",
+      "sha256": "abb840e8112028bd55c73fa9f153a283f9ca21f344a4bcb2655b5a167f652236",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/git_forensics.py",
+      "sha256": "f93b9e80a3cec16f97fead35061911c522d4e231450aa2f1f13ea84c004f9516",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/cache_inspect.py",
+      "sha256": "2dccce740227f107deb15277db0a08b5b94d4e6a5fae88021a4293395185ee3f",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/count_blocking.py",
+      "sha256": "8ffb8d705cbcf21263fe6fc8a9d05f2d9f53402cec379b517ebdfb85ec72be28",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/supply_chain.py",
+      "sha256": "bf1c1b2ff43a00e027d44d75ec618bd119a70a7b2903c216246ca04e70615cef",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/ai_review_call.py",
+      "sha256": "5b8a735598d1ff21a4ef0bcacd96a6e7dc51c06ec5f6bbad06ea6ec675be4976",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/external_evidence.py",
+      "sha256": "3c44a49971824242249c6d577782581c342270c03c0044dc26ff46a78c3e924e",
+      "mode": 493
+    },
+    {
+      "path": ".github/scripts/binary_inspect.py",
+      "sha256": "9693dcf52288b8f7d6e8ffa301df7f0b91473c7fdba076e79a15ab3db917ddb8",
+      "mode": 493
+    },
+    {
+      "path": "policy/external-identities.yml",
+      "sha256": "26aef9640e372d9bf95f79c975b313f48bfc258887c8302dfaef44ca2adefe46",
+      "mode": 420
+    },
+    {
+      "path": "policy/release-policy.yml",
+      "sha256": "584041559503e0421d5cc805bf0966defd62c5237994d90246db1fdd8348db57",
+      "mode": 420
+    },
+    {
+      "path": "policy/tool-registry.yml",
+      "sha256": "a4257e1aa8ad86ab397087b7931c5e80ed65773c3111fd0e825ddb04b18fc051",
+      "mode": 420
+    },
+    {
+      "path": "README.md",
+      "sha256": "85a9666f1ebfc703ddc1e80a219203c620f36086b5aa02eec29ac5b15a7c1b8b",
+      "mode": 420
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "15615763cee6d501ad15e4b7b07987bb83653c3341c3d567441728a7b03e79c9",
+      "mode": 420
+    },
+    {
+      "path": "qualification/test_scanners.py",
+      "sha256": "b275bc04f9f3482ec798b7c0e9dfaa2f27317dceede3ba92af097f816582aa7e",
+      "mode": 493
+    },
+    {
+      "path": "qualification/test_integrity.py",
+      "sha256": "bc11925e20081ab7fab719256fe02e978026feb51aff89bb4e2e2d503a0ff8ff",
+      "mode": 493
+    },
+    {
+      "path": "qualification/fixtures.py",
+      "sha256": "ab2e152305763dc409ac771b8f559001fb7d274ed605eb6eefe2260112027956",
+      "mode": 493
+    },
+    {
+      "path": "qualification/test_fuzz_parsers.py",
+      "sha256": "8ed5c27cf9b68e1e61b55a45d69fb1aad786e8cd726bf088e085ad7edaf91199",
+      "mode": 493
+    },
+    {
+      "path": "qualification/test_gate.py",
+      "sha256": "bc01b90e78810dc8a6f0f5962c9829f00deb753aab866c3ce2271d11eb96220a",
+      "mode": 493
+    },
+    {
+      "path": "qualification/run_local.py",
+      "sha256": "1becd23ded324e19be1f64de3ddbf93f60f5a705adfca1864549c48307e5b713",
+      "mode": 493
+    },
+    {
+      "path": "rules/rego/main.rego",
+      "sha256": "266c6ee451ae79e7018f930713de59569855ebf47db02c2f8a68641f3c5b3de3",
+      "mode": 420
+    },
+    {
+      "path": "rules/swiftlint/security.yml",
+      "sha256": "f073f25ef0f02b663a30d0a7ff1eff89aefeb4d4ceab2b3d10f03abdec5c2188",
+      "mode": 420
+    },
+    {
+      "path": "rules/semgrep/security.yml",
+      "sha256": "0dfeeebc23547e13e683a452eb44cc2346cdc922e0b31df287cee1c634861f51",
+      "mode": 420
+    },
+    {
+      "path": "rules/yara/baseline.yar",
+      "sha256": "0a4aff77946d5632be3a2edbfdb46ba0c7c0fcb15dd1ccb81971a23056e90a58",
+      "mode": 420
+    },
+    {
+      "path": "rules/cargo-deny/deny.toml",
+      "sha256": "ff4c434baf8890da04ed38efc54a0a1b701fdd2407967eaeb03e9b7c984e06e3",
+      "mode": 420
+    },
+    {
+      "path": "rules/eslint/eslint.config.mjs",
+      "sha256": "5f379836564d18a2a27d7638f9cab88f29b8f042b065eafa3e6d07e36b9fed04",
+      "mode": 420
+    },
+    {
+      "path": ".hypothesis/constants/67b0a8ccf18bf5d2",
+      "sha256": "405caa7a0b75d4fb36afa5a33fa7d524be4a5f78e976b6cace899ac3384c61a1",
+      "mode": 384
+    },
+    {
+      "path": ".hypothesis/.gitignore",
+      "sha256": "41e7ed0dbc23047cfa33374b5909f7b3c7875663fec73abdd23a22518567754a",
+      "mode": 420
+    },
+    {
+      "path": ".hypothesis/unicode_data/15.0.0/charmap.json.gz",
+      "sha256": "40841d9d8d472e8a1a0bd7cfc962093f98d77531bf6f364321a48daac21d1d52",
+      "mode": 384
+    },
+    {
+      "path": ".hypothesis/unicode_data/15.0.0/codec-v2-utf-8.json.gz",
+      "sha256": "ba72914ac627e2517aceff8e65149a2572ea92b0909d13379fd88dfecda213bd",
+      "mode": 384
+    },
+    {
+      "path": "docs/completion-matrix.md",
+      "sha256": "de49ce5188bbc939f48aa62ff97d07d9d0d87ade8fc30af71805c6ee9ac19d38",
+      "mode": 420
+    },
+    {
+      "path": "docs/coverage-matrix.md",
+      "sha256": "ae11374a9ffee679c00e8eb8d190318a7adc5c51451eb333bbaac4850e737dd1",
+      "mode": 420
+    },
+    {
+      "path": "docs/threat-model.md",
+      "sha256": "fc5c95034bc8797b33e30ad54c0368f613a6510ef827199ca2c77df929dcdbca",
+      "mode": 420
+    },
+    {
+      "path": "docs/integration-contract.md",
+      "sha256": "15b23157454ab36f199871d9bae222e7d4ad09fe02f42059419fb8fcedaf59ac",
+      "mode": 420
+    }
+  ],
+  "validation_baseline": "Owner confirms comprehensive validation completed on creation; supplied qualification records preserved. Import tests do not rerun scanners.",
+  "adapter": "Root reusable workflow materializes unchanged module after each pinned depot checkout; module workflow files themselves remain unchanged."
+}

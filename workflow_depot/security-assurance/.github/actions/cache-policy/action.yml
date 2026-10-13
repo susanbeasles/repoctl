@@ -1,0 +1,36 @@
+name: Cache trust policy
+description: Enforces the cache trust model. This pipeline restores NO caches on untrusted events; on trusted refs caches must be keyed by lockfile digest and verified after restore. Also lints the caller's workflows for cache-poisoning patterns. Emits CACHE-TRUST.
+inputs:
+  source_path: { description: Candidate checkout, required: true }
+  cache_mode: { description: "none (default) | trusted-ref", default: none }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set +e; T0=$SECONDS; S="${{ github.action_path }}/../../scripts"; st() { if [ "$1" = ERR ]; then echo TOOL_FAILURE; elif [ "$1" -gt 0 ]; then echo FAIL; else echo PASS; fi; }; E="$RESULTS_DIR/evidence"; mkdir -p "$E"; SRC="${{ inputs.source_path }}"
+        python3 - "$SRC" "$E/cache.findings.json" "${{ inputs.cache_mode }}" "$GITHUB_EVENT_NAME" <<'PY'
+        import glob,json,os,re,sys
+        src,out,mode,event=sys.argv[1:5]; items=[]
+        def add(sev,rule,path,msg): items.append({"severity":sev,"rule":rule,"path":path,"message":msg})
+        untrusted = event in ("pull_request","pull_request_target","issue_comment","workflow_run")
+        if mode!="none" and untrusted: add("critical","CACHE-ON-UNTRUSTED","workflow",f"cache_mode={mode} on untrusted event {event}")
+        # The scanner jobs themselves run without caches; verify no cache dirs were restored into this job.
+        for p in ("~/.npm/_cacache","~/.cache/pip","~/.cargo/registry","~/.cache/uv","~/.cache/pypoetry","node_modules"):
+            if os.path.isdir(os.path.expanduser(p)) and p!="node_modules": add("medium","CACHE-PRESENT",p,"cache directory present in scanner job (expected empty)")
+        # Lint caller workflows for cache-trust violations (complements zizmor).
+        for wf in glob.glob(os.path.join(src,".github","workflows","*.y*ml")):
+            t=open(wf,errors="replace").read(); rel=os.path.relpath(wf,src)
+            if re.search(r"uses:\s*actions/cache(/restore)?@",t) and re.search(r"pull_request_target",t): add("critical","CACHE-PWN-REQUEST",rel,"actions/cache used in a pull_request_target workflow (poisoned-cache into privileged context)")
+            if re.search(r"uses:\s*actions/cache(/restore)?@",t) and not re.search(r"key:.*hashFiles\(",t): add("high","CACHE-KEY-NOT-CONTENT-ADDRESSED",rel,"cache key not derived from hashFiles(lockfile)")
+            if re.search(r"cache:\s*['\"]?(npm|pip|pnpm|yarn|poetry)",t) and not re.search(r"cache-dependency-path",t) and re.search(r"pull_request",t): add("medium","SETUP-CACHE-ON-PR",rel,"setup-* cache enabled on pull_request without cache-dependency-path")
+            if re.search(r"restore-keys:",t): add("medium","CACHE-RESTORE-KEYS",rel,"restore-keys fallback allows partial/stale cache hits across branches")
+            if re.search(r"uses:\s*[\w.-]+/[\w.-]+@(v\d+|main|master|latest)\b",t): add("high","ACTION-UNPINNED",rel,"third-party action pinned to a mutable tag/branch")
+            if re.search(r"actions/(upload|download)-artifact@",t) and re.search(r"workflow_run",t): add("medium","ARTIFACT-CROSS-WORKFLOW",rel,"artifact consumed across workflow_run boundary; verify digest before use")
+        if not glob.glob(os.path.join(src,".github","workflows","*.y*ml")): add("info","NO-WORKFLOWS","",".github/workflows absent")
+        json.dump({"items":items,"mode":mode,"event":event},open(out,"w"),indent=2)
+        PY
+        N=$(python3 "$S/count_blocking.py" "$E/cache.findings.json")
+        python3 "$S/result.py" --control CACHE-TRUST --domain I --status $(st "$N") --reason "$N critical/high; cache_mode=${{ inputs.cache_mode }}" --tool cache-policy --tool-version 1 \
+          --findings-json "$E/cache.findings.json" --evidence "$E/cache.findings.json" --duration-s $((SECONDS-T0)) \
+          --coverage "no caches restored in scanner jobs; caller workflow lint. Content inspection of restored caches on trusted refs is GAP-CACHE-CONTENT."
