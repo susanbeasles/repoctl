@@ -1,5 +1,7 @@
 """Offline import/path check only; does not run scanner actions or qualification."""
-import hashlib,json,pathlib,tempfile,shutil,yaml
+import hashlib,json,pathlib,tempfile,shutil,yaml,sys
+sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/"ci"))
+from adapt_security import adapt
 root=pathlib.Path(__file__).resolve().parents[1]
 manifest=json.loads((root/'security-assurance-import.json').read_text())
 for entry in manifest['files']:
@@ -7,7 +9,7 @@ for entry in manifest['files']:
 original=(root/'security-assurance/.github/workflows/security-assurance.yml').read_text()
 adapter=(root/'.github/workflows/security-assurance.yml').read_text()
 addition='      - name: Materialize intact security-assurance module\n        run: cp -a -- .security-depot/security-assurance/. .security-depot/\n'
-assert adapter.replace(addition,'')==original
+assert adapter==adapt(original)
 parsed=yaml.load(adapter,Loader=yaml.BaseLoader)
 assert set(parsed['on'])=={'workflow_call'}
 with tempfile.TemporaryDirectory() as td:

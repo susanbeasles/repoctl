@@ -1,0 +1,98 @@
+name: Integration quality and security
+on:
+  workflow_call:
+    inputs:
+      depot_repository:
+        type: string
+        required: true
+      depot_ref:
+        type: string
+        required: true
+      build_output:
+        description: Explicit project build directory; no default or invented artifact
+        type: string
+        required: true
+      runner_image:
+        description: Reviewed runtime image pinned by sha256 digest
+        type: string
+        required: true
+permissions: {}
+jobs:
+  identity:
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - env:
+          DEPOT_REF: ${{ inputs.depot_ref }}
+          BUILD_OUTPUT: ${{ inputs.build_output }}
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          RUNNER_IMAGE: ${{ inputs.runner_image }}
+        run: |
+          python3 - <<'PY'
+          import os,re
+          assert os.environ['PRIVATE_REPOSITORY']=='true', 'Private sourcemaps require private artifact custody'
+          assert re.fullmatch(r'[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*',os.environ['BUILD_OUTPUT'])
+          assert os.environ['GITHUB_EVENT_NAME']=='push'
+          assert re.fullmatch(r'refs/heads/int/[^\s]+',os.environ['GITHUB_REF'])
+          assert re.fullmatch(r'[a-f0-9]{40}',os.environ['DEPOT_REF'])
+          assert re.fullmatch(r'[^\s]+@sha256:[a-f0-9]{64}',os.environ['RUNNER_IMAGE'])
+          PY
+  admission:
+    needs: identity
+    permissions: {contents: read}
+    uses: ./.github/workflows/security-assurance.yml
+    with:
+      depot_repository: ${{ inputs.depot_repository }}
+      depot_ref: ${{ inputs.depot_ref }}
+      admission_only: true
+  quality-build:
+    needs: admission
+    if: needs.admission.outputs.decision == 'PASS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions: {contents: read}
+    container:
+      image: ${{ inputs.runner_image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {path: src, ref: '${{ github.sha }}', persist-credentials: false, submodules: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ inputs.depot_repository }}
+          ref: ${{ inputs.depot_ref }}
+          path: .quality-depot
+          persist-credentials: false
+      - name: Run required quality checks and the single integration build
+        run: node .quality-depot/ci/project-profile.mjs src
+      - name: Bind immutable build bytes to integration run
+        env:
+          BUILD_OUTPUT: ${{ inputs.build_output }}
+        run: |
+          node .quality-depot/ci/build-manifest.mjs "src/$BUILD_OUTPUT" build-manifest.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: integration-build-${{ github.sha }}
+          path: |
+            src/${{ inputs.build_output }}/
+            build-manifest.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+  security:
+    needs: quality-build
+    permissions: {contents: read, id-token: write}
+    uses: ./.github/workflows/security-assurance.yml
+    with:
+      depot_repository: ${{ inputs.depot_repository }}
+      depot_ref: ${{ inputs.depot_ref }}
+  quality-security-checks:
+    needs: [admission, quality-build, security]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - env:
+          ADMISSION: ${{ needs.admission.outputs.decision }}
+          QUALITY: ${{ needs.quality-build.result }}
+          SECURITY: ${{ needs.security.outputs.decision }}
+        run: test "$ADMISSION" = PASS && test "$QUALITY" = success && test "$SECURITY" = PASS

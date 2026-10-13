@@ -18,6 +18,10 @@ name: Security Assurance
 on:
   workflow_call:
     inputs:
+      admission_only:
+        description: "Only source admission; PASS is not release approval"
+        type: boolean
+        default: false
       depot_repository:
         description: "owner/repo of this security depot"
         required: true
@@ -91,12 +95,12 @@ on:
     outputs:
       decision:
         description: "PASS or FAIL from the final gate"
-        value: ${{ jobs.evidence-sign.outputs.decision }}
+        value: ${{ inputs.admission_only && jobs.gate-stage0.outputs.decision || jobs.evidence-sign.outputs.decision }}
 
 permissions: {}
 
 concurrency:
-  group: security-assurance-${{ github.repository }}-${{ github.ref }}-${{ github.sha }}
+  group: security-assurance-${{ inputs.admission_only }}-${{ github.repository }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 env:
@@ -215,7 +219,7 @@ jobs:
   analyze:
     name: "S2 · ${{ matrix.scan }}"
     needs: [detect, gate-stage0]
-    if: needs.gate-stage0.outputs.decision == 'PASS'
+    if: ${{ !inputs.admission_only && (needs.gate-stage0.outputs.decision == 'PASS') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions: { contents: read }
@@ -304,7 +308,7 @@ jobs:
   codeql:
     name: "S2 · codeql (${{ matrix.language }})"
     needs: [detect, gate-stage0]
-    if: needs.gate-stage0.outputs.decision == 'PASS' && needs.detect.outputs.codeql_languages != '[]'
+    if: ${{ !inputs.admission_only && (needs.gate-stage0.outputs.decision == 'PASS' && needs.detect.outputs.codeql_languages != '[]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions: { contents: read, security-events: write }
@@ -340,7 +344,7 @@ jobs:
   gate-stage2:
     name: "S3 · policy gate"
     needs: [detect, gate-stage0, analyze, codeql]
-    if: always() && needs.gate-stage0.outputs.decision == 'PASS'
+    if: ${{ !inputs.admission_only && (always() && needs.gate-stage0.outputs.decision == 'PASS') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions: { contents: read }
@@ -364,7 +368,7 @@ jobs:
   ai-review:
     name: "S4 · AI security review (advisory)"
     needs: [detect, gate-stage2]
-    if: needs.gate-stage2.outputs.decision == 'PASS'
+    if: ${{ !inputs.admission_only && (needs.gate-stage2.outputs.decision == 'PASS') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions: { contents: read }
@@ -399,7 +403,7 @@ jobs:
   evidence-sign:
     name: "S5 · sign evidence & promotion gate"
     needs: [detect, gate-stage2, ai-review]
-    if: always() && needs.gate-stage2.outputs.decision == 'PASS'
+    if: ${{ !inputs.admission_only && (always() && needs.gate-stage2.outputs.decision == 'PASS') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The only job with an OIDC token. It runs no scanner and never touches src/.
