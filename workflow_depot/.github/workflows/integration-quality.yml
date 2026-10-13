@@ -1,0 +1,220 @@
+name: Integration quality and security
+on:
+  workflow_call:
+    inputs:
+      depot_repository:
+        type: string
+        required: true
+      depot_ref:
+        type: string
+        required: true
+      build_output:
+        description: Explicit project build directory; no default or invented artifact
+        type: string
+        required: true
+      runner_image:
+        description: Reviewed runtime image pinned by sha256 digest
+        type: string
+        required: true
+      policy_profile:
+        description: "ci-baseline | strict"
+        type: string
+        default: ci-baseline
+      semgrep_rules_path:
+        description: "Path (inside src/) to vendored Semgrep rules; empty uses registry packs"
+        type: string
+        default: ""
+      rego_policy_path:
+        description: "Path (inside src/) to Rego policies for Conftest"
+        type: string
+        default: ""
+      cache_mode:
+        description: "none | trusted-ref"
+        type: string
+        default: none
+      dast_target_url:
+        type: string
+        default: ""
+      dast_authorization_ref:
+        description: "Approval/ticket reference that the DAST target is isolated, synthetic-data only"
+        type: string
+        default: ""
+      api_schema_path:
+        type: string
+        default: ""
+      api_target_url:
+        type: string
+        default: ""
+      api_authorization_ref:
+        type: string
+        default: ""
+      codeql_build_command:
+        description: "Operator-approved build command for compiled languages (executes repository code). Empty => compiled-language CodeQL is POLICY_UNAVAILABLE."
+        type: string
+        default: ""
+      ai_review_enabled:
+        description: "Explicit opt-in. An API key alone never enables the AI review."
+        type: boolean
+        default: false
+      ai_review_approval_ref:
+        description: "Approval reference (ticket/BAA/ZDR confirmation) for sending source diffs to the model provider. Required when ai_review_enabled."
+        type: string
+        default: ""
+      external_evidence_tarball:
+        description: "Path (inside src/) to a signed external-results.tar.gz produced by non-CI environments (IAST, runtime, FIM, fuzz lab...)"
+        type: string
+        default: ""
+      external_evidence_bundle:
+        description: "Path (inside src/) to its cosign bundle/signature"
+        type: string
+        default: ""
+      ai_review_model:
+        type: string
+        default: claude-sonnet-4-6
+      ai_review_base_sha:
+        description: "Base SHA for the diff the AI reviewer sees (default: PR base or previous commit)"
+        type: string
+        default: ""
+permissions: {}
+jobs:
+  identity:
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - env:
+          DEPOT_REF: ${{ inputs.depot_ref }}
+          BUILD_OUTPUT: ${{ inputs.build_output }}
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          RUNNER_IMAGE: ${{ inputs.runner_image }}
+        run: |
+          python3 - <<'PY'
+          import os,re
+          assert os.environ['PRIVATE_REPOSITORY']=='true', 'Private sourcemaps require private artifact custody'
+          assert re.fullmatch(r'[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*',os.environ['BUILD_OUTPUT'])
+          assert os.environ['GITHUB_EVENT_NAME']=='push'
+          assert re.fullmatch(r'refs/heads/int/[^\s]+',os.environ['GITHUB_REF'])
+          assert re.fullmatch(r'[a-f0-9]{40}',os.environ['DEPOT_REF'])
+          assert re.fullmatch(r'[^\s]+@sha256:[a-f0-9]{64}',os.environ['RUNNER_IMAGE'])
+          PY
+  admission:
+    needs: identity
+    permissions: {contents: read, security-events: write, id-token: write}
+    uses: ./.github/workflows/security-assurance.yml
+    with:
+      depot_repository: ${{ inputs.depot_repository }}
+      depot_ref: ${{ inputs.depot_ref }}
+      admission_only: true
+      policy_profile: ${{ inputs.policy_profile }}
+  quality-build:
+    needs: admission
+    if: needs.admission.outputs.decision == 'PASS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions: {contents: read}
+    container:
+      image: ${{ inputs.runner_image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {path: src, ref: '${{ github.sha }}', persist-credentials: false, submodules: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ inputs.depot_repository }}
+          ref: ${{ inputs.depot_ref }}
+          path: .quality-depot
+          persist-credentials: false
+      - name: Run required quality checks and the single integration build
+        run: node .quality-depot/ci/project-profile.mjs src
+      - name: Bind immutable build bytes to integration run
+        env:
+          BUILD_OUTPUT: ${{ inputs.build_output }}
+        run: |
+          mkdir -p .integration-artifact/payload
+          cp -a -- "src/$BUILD_OUTPUT/." .integration-artifact/payload/
+          node .quality-depot/ci/build-manifest.mjs .integration-artifact/payload .integration-artifact/build-manifest.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: integration-build-${{ github.sha }}
+          path: .integration-artifact/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+  security:
+    needs: quality-build
+    permissions: {contents: read, security-events: write, id-token: write}
+    uses: ./.github/workflows/security-assurance.yml
+    with:
+      depot_repository: ${{ inputs.depot_repository }}
+      depot_ref: ${{ inputs.depot_ref }}
+      integration_artifact_name: integration-build-${{ github.sha }}
+      policy_profile: ${{ inputs.policy_profile }}
+      semgrep_rules_path: ${{ inputs.semgrep_rules_path }}
+      rego_policy_path: ${{ inputs.rego_policy_path }}
+      cache_mode: ${{ inputs.cache_mode }}
+      dast_target_url: ${{ inputs.dast_target_url }}
+      dast_authorization_ref: ${{ inputs.dast_authorization_ref }}
+      api_schema_path: ${{ inputs.api_schema_path }}
+      api_target_url: ${{ inputs.api_target_url }}
+      api_authorization_ref: ${{ inputs.api_authorization_ref }}
+      codeql_build_command: ${{ inputs.codeql_build_command }}
+      ai_review_enabled: ${{ inputs.ai_review_enabled }}
+      ai_review_approval_ref: ${{ inputs.ai_review_approval_ref }}
+      external_evidence_tarball: ${{ inputs.external_evidence_tarball }}
+      external_evidence_bundle: ${{ inputs.external_evidence_bundle }}
+      ai_review_model: ${{ inputs.ai_review_model }}
+      ai_review_base_sha: ${{ inputs.ai_review_base_sha }}
+  quality-security-checks:
+    needs: [admission, quality-build, security]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - env:
+          ADMISSION: ${{ needs.admission.outputs.decision }}
+          QUALITY: ${{ needs.quality-build.result }}
+          SECURITY: ${{ needs.security.outputs.decision }}
+        run: test "$ADMISSION" = PASS && test "$QUALITY" = success && test "$SECURITY" = PASS
+
+  release-materials:
+    needs: [quality-security-checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions: {contents: read, id-token: write}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ inputs.depot_repository }}
+          ref: ${{ inputs.depot_ref }}
+          path: .security-depot
+          persist-credentials: false
+      - run: cp -a -- .security-depot/security-assurance/. .security-depot/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: integration-build-${{ github.sha }}
+          path: .integration-build
+      - name: Reverify integration bytes before release packaging
+        run: python3 .security-depot/ci/verify-build.py .integration-build
+      - uses: ./.security-depot/.github/actions/install-tool
+        with: {tool: syft}
+      - name: Generate SBOM for the built artifact without rebuilding
+        run: |
+          mkdir build-sbom
+          syft scan dir:.integration-build/payload -o cyclonedx-json=build-sbom/sbom.cdx.json -o spdx-json=build-sbom/sbom.spdx.json --source-name "$GITHUB_REPOSITORY" --source-version "$GITHUB_SHA"
+          python3 .security-depot/ci/release-materials.py .integration-build build-sbom release-materials
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Sign and verify private release bytes and provenance using OIDC
+        env:
+          DEPOT_REPOSITORY: ${{ inputs.depot_repository }}
+          DEPOT_REF: ${{ inputs.depot_ref }}
+        run: |
+          set -euo pipefail
+          identity="https://github.com/$DEPOT_REPOSITORY/.github/workflows/integration-quality.yml@$DEPOT_REF"
+          for file in integration-release.tar.gz artifact-provenance.json; do
+            cosign sign-blob --yes --bundle "release-materials/$file.sigstore.json" "release-materials/$file"
+            cosign verify-blob --bundle "release-materials/$file.sigstore.json" --certificate-identity "$identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com "release-materials/$file"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: integration-release-${{ github.sha }}
+          path: release-materials/
+          if-no-files-found: error
+          retention-days: 30
