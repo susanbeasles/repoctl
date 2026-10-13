@@ -98,7 +98,7 @@ jobs:
           PY
   admission:
     needs: identity
-    permissions: {contents: read}
+    permissions: {contents: read, security-events: write, id-token: write}
     uses: ./.github/workflows/security-assurance.yml
     with:
       depot_repository: ${{ inputs.depot_repository }}
@@ -140,7 +140,7 @@ jobs:
           retention-days: 7
   security:
     needs: quality-build
-    permissions: {contents: read, id-token: write}
+    permissions: {contents: read, security-events: write, id-token: write}
     uses: ./.github/workflows/security-assurance.yml
     with:
       depot_repository: ${{ inputs.depot_repository }}

@@ -20,3 +20,10 @@ for job in s['jobs'].values():
   value=step.get('with',{}).get('pattern','')
   if value.startswith('results-'):assert "'admission' || 'full'" in value
 print('Verified phase-scoped artifacts prevent admission/full evidence collisions.')
+
+for name in ['admission','security']:
+ assert j[name]['permissions']['security-events']=='write' and j[name]['permissions']['id-token']=='write'
+# Delegation must cover the reusable workflow's declared permissions even when later jobs are skipped.
+assert j['release-materials']['needs']==['quality-security-checks']
+assert j['release-materials']['permissions']=={'contents':'read','id-token':'write'}
+assert not any('project-profile.mjs' in x.get('run','') for x in j['release-materials']['steps'])
