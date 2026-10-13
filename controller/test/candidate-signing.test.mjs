@@ -2,6 +2,8 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,realpath,writeFile,readFile,rm,access} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync,spawnSync} from 'node:child_process';
 import {signedCandidateVerifier} from '../src/candidate/verifier.mjs';
+import {candidateStore} from '../src/candidate/store.ts';
+import {generationUpload} from '../src/candidate/upload.ts';
 import {candidatePreparation} from '../src/candidate/preparation.mjs';import {candidateSigning} from '../src/candidate/signing.mjs';
 async function fixture(){
  const root=await realpath(await mkdtemp(join(tmpdir(),'repoctl-signing-'))),repo=join(root,'repo');
@@ -24,6 +26,21 @@ test('actual SSH signed candidate is a complete single-parent commit with pinned
   assert.equal(r.state,'signed-awaiting-integration-generation');assert.equal(f.signs(),1);
   const verifier=await signedCandidateVerifier({repositoryID:7,objectDirectory:join(out,'rebuilt/objects.git'),gitExecutable:'/usr/bin/git',sshKeygenExecutable:'/usr/bin/ssh-keygen',publicKey:f.config.publicKey});
   const binding={repositoryID:7,baseSHA:r.baseSHA,commitSHA:r.commitSHA,treeSHA:r.treeSHA};assert.deepEqual(await verifier.verify(binding),{...binding,verified:true});
+  const store=await candidateStore({repositoryID:7,objectDirectory:join(out,'rebuilt/objects.git'),gitExecutable:'/usr/bin/git',verifyCandidate:(value,context)=>verifier.verify(value,context)});
+  const generation={...binding,generationID:'a'.repeat(64),ref:'refs/heads/int/'+'a'.repeat(64)};
+  const packed=await store.pack(generation,{signal:new AbortController().signal});
+  const received=join(f.root,'received.git');execFileSync('/usr/bin/git',['init','--bare','-q',received]);
+  execFileSync('/usr/bin/git',['--git-dir='+received,'index-pack','--stdin'],{input:packed});
+  assert.deepEqual(execFileSync('/usr/bin/git',['--git-dir='+received,'cat-file','commit',r.commitSHA]),execFileSync('/usr/bin/git',['--git-dir='+join(out,'rebuilt/objects.git'),'cat-file','commit',r.commitSHA]));
+  assert.equal(execFileSync('/usr/bin/git',['--git-dir='+received,'show',r.commitSHA+':submitted']).toString(),'feature\n');
+  const remote=join(f.root,'published.git');execFileSync('/usr/bin/git',['init','--bare','-q',remote]);
+  const upload=generationUpload({repositoryID:7,store,transport:{send:async bytes=>execFileSync('/usr/bin/git',['-c','core.hooksPath=/dev/null','receive-pack','--stateless-rpc',remote],{input:bytes,stdio:['pipe','pipe','ignore']})}});
+  assert.equal((await upload.create(generation,{signal:new AbortController().signal})).object.sha,r.commitSHA);
+  assert.equal(execFileSync('/usr/bin/git',['--git-dir='+remote,'rev-parse',generation.ref]).toString().trim(),r.commitSHA);
+  execFileSync('/usr/bin/git',['--git-dir='+remote,'-c','gpg.ssh.program=/usr/bin/ssh-keygen','-c','gpg.ssh.allowedSignersFile='+join(out,'allowed-signers'),'verify-commit',r.commitSHA],{stdio:['ignore','ignore','ignore']});
+
+  await assert.rejects(store.pack({...generation,repositoryID:8},{signal:new AbortController().signal}),/binding/);
+
   await assert.rejects(verifier.verify({...binding,treeSHA:'d'.repeat(40)}),/rejected/);
   await assert.rejects(verifier.verify({...binding,repositoryID:8}),/binding/);
   const otherKey=join(f.root,'other-verifier-key');execFileSync('/usr/bin/ssh-keygen',['-q','-t','ed25519','-N','','-f',otherKey]);const otherPublic=(await readFile(otherKey+'.pub','utf8')).trim().split(' ').slice(0,2).join(' ');
@@ -65,5 +82,20 @@ test('signer cannot mutate the prepared commit payload through shared request by
   const signer={async signGit(request){request.bytes.fill(65);return f.config.signer.signGit(request);}};
   const out=join(f.root,'payload-tamper');await assert.rejects(candidateSigning({...f.config,signer}).finalize(f.prep,out,'feat: preserved payload'),/signing failed/);
   assert.equal(f.signs(),1);assert.match(await readFile(join(out,'unsigned.commit'),'utf8'),/^tree [a-f0-9]{40}\nparent [a-f0-9]{40}\n/);await assert.rejects(access(join(out,'candidate.json')));
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});
+
+test('candidate pack rejects revoked proof and object-store drift before transfer',async()=>{
+ const f=await fixture();try{
+  const out=join(f.root,'signed'),r=await candidateSigning(f.config).finalize(f.prep,out,'feat: pack qualification');
+  const objectDirectory=join(out,'rebuilt/objects.git');
+  const candidate={repositoryID:7,baseSHA:r.baseSHA,commitSHA:r.commitSHA,treeSHA:r.treeSHA,generationID:'a'.repeat(64),ref:'refs/heads/int/'+'a'.repeat(64)};
+  let calls=0;
+  const config={repositoryID:7,objectDirectory,gitExecutable:'/usr/bin/git',verifyCandidate:async binding=>({...binding,verified:++calls===1})};
+  const store=await candidateStore(config);
+  await assert.rejects(store.pack(candidate,{signal:new AbortController().signal}),/packing denied/);assert.equal(calls,2);
+  await writeFile(join(objectDirectory,'objects/info/alternates'),'/outside/object/store\n');
+  await assert.rejects(store.pack(candidate,{signal:new AbortController().signal}),/packing denied/);assert.equal(calls,2);
+  await assert.rejects(candidateStore(config),/independent/);
  }finally{await rm(f.root,{recursive:true,force:true});}
 });

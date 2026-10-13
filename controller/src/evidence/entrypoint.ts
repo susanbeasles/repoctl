@@ -6,7 +6,7 @@ import {boundJSON} from '../runtime/services.mjs';
 import type {CheckRule} from './candidate.ts';
 interface Bindings {
  EVIDENCE_ENABLED?:string; EVIDENCE_CONFIG_JSON?:string;
- EVIDENCE_POLICY:Fetcher; EVIDENCE_HISTORY:Fetcher; EVIDENCE_ARCHIVES:Fetcher; EVIDENCE_SIGNATURES:Fetcher;
+ EVIDENCE_POLICY:Fetcher; EVIDENCE_HISTORY:Fetcher; EVIDENCE_ARCHIVES:Fetcher; EVIDENCE_SIGNATURES:Fetcher; EVIDENCE_BASELINE:Fetcher;
 }
 interface Configuration {
  repositoryID:number; repository:string; targetRef:string; policyDigest:string;
@@ -21,7 +21,7 @@ async function read(request:Request):Promise<unknown>{
 }
 export class AdmissionEvidenceService extends WorkerEntrypoint<Bindings> {
  async fetch(request:Request):Promise<Response>{
-  if(this.env.EVIDENCE_ENABLED!=='true'||typeof this.env.EVIDENCE_CONFIG_JSON!=='string'||!(['EVIDENCE_POLICY','EVIDENCE_HISTORY','EVIDENCE_ARCHIVES','EVIDENCE_SIGNATURES'] as const).every(n=>typeof this.env[n]?.fetch==='function'))return Response.json({error:'evidence_not_configured'},{status:503,headers});
+  if(this.env.EVIDENCE_ENABLED!=='true'||typeof this.env.EVIDENCE_CONFIG_JSON!=='string'||!(['EVIDENCE_POLICY','EVIDENCE_HISTORY','EVIDENCE_ARCHIVES','EVIDENCE_SIGNATURES','EVIDENCE_BASELINE'] as const).every(n=>typeof this.env[n]?.fetch==='function'))return Response.json({error:'evidence_not_configured'},{status:503,headers});
   if(request.method!=='POST'||new URL(request.url).pathname!=='/v1/evidence/admission')return Response.json({error:'not_found'},{status:404,headers});
   try{
    const body=await read(request),configs:unknown=JSON.parse(this.env.EVIDENCE_CONFIG_JSON);
@@ -35,7 +35,7 @@ export class AdmissionEvidenceService extends WorkerEntrypoint<Bindings> {
    }};
    if(!['refs/heads/main','refs/heads/master'].includes(config.targetRef))throw Error('Invalid target');
    const github=candidateEvidence({repositoryID:config.repositoryID,signatures:{verify:candidate=>boundJSON(this.env.EVIDENCE_SIGNATURES,'/v1/candidate/verify',{candidate})},github:githubObserver({repository:config.repository,repositoryID:config.repositoryID,branch:config.targetRef.slice(11)}),requiredChecks:config.requiredChecks,actorIDs:config.actorIDs});
-   const verifier=admissionEvidence({policy,github,
+   const verifier=admissionEvidence({policy,github,baseline:{verify:(binding:unknown)=>boundJSON(this.env.EVIDENCE_BASELINE,'/v1/baseline/verify',{binding})},
     history:{verify:(intent:unknown)=>boundJSON(this.env.EVIDENCE_HISTORY,'/v1/evidence/history',{intent})},
     archives:{verify:(intent:unknown)=>boundJSON(this.env.EVIDENCE_ARCHIVES,'/v1/evidence/archive',{intent})}});
    return Response.json(await verifier.verify(body),{headers});

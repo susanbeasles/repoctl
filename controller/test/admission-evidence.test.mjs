@@ -15,7 +15,7 @@ async function fixture(){
  const report={protocol:'repoctl-admission-evidence-v1',repositoryID:1,policyDigest:hash,githubDigest:g.digest,historyDigest:h.digest,archiveDigest:r.digest};
  const p={...hi,sourceSHA:c,treeSHA:a,policyDigest:hash,evidenceDigest:await digest(report),archiveDigests:[hash],nonce:hash,expiresAt:now+60000};
  const request={operationID:hash,repositoryID:1,intent:p,owner:await signApproval(p,'owner',owner.keyID,owner.privateKey),validator:await signApproval(p,'validator',validator.keyID,validator.privateKey)};
- const services={policy:{current:async()=>policy},github:{verify:async()=>g},history:{verify:async()=>h},archives:{verify:async()=>r},clock:()=>now};
+ const services={baseline:{verify:async binding=>({...binding,verified:true,drift:false})},policy:{current:async()=>policy},github:{verify:async()=>g},history:{verify:async()=>h},archives:{verify:async()=>r},clock:()=>now};
  return {services,request,g,h,r,policy,owner,validator};
 }
 test('admission requires independent approvals and all three exact evidence bodies',async()=>{
@@ -29,4 +29,24 @@ test('missing or foreign archive/history/CI evidence cannot authorize',async()=>
 test('changed approved evidence digest and policy rotation deny admission',async()=>{
  const f=await fixture();f.request.intent.evidenceDigest=hash;f.request.owner=await signApproval(f.request.intent,'owner',f.owner.keyID,f.owner.privateKey);f.request.validator=await signApproval(f.request.intent,'validator',f.validator.keyID,f.validator.privateKey);await assert.rejects(admissionEvidence(f.services).verify(f.request));
  const g=await fixture();let reads=0;g.services.policy.current=async()=>({...g.policy,digest:++reads===1?g.policy.digest:'b'.repeat(64),executorTrust:{...g.policy.executorTrust,acceptedPolicyDigest:reads===1?g.policy.digest:'b'.repeat(64)}});await assert.rejects(admissionEvidence(g.services).verify(g.request));
+});
+
+test('missing, drifted or foreign remote baseline denies before evidence collection',async()=>{
+ const f=await fixture();assert.throws(()=>admissionEvidence({...f.services,baseline:undefined}),/mandatory/);
+ for(const verify of [async binding=>({...binding,verified:false,drift:true}),async binding=>({...binding,verified:true,drift:false,policyRevision:2})]){
+  let calls=0;const api=admissionEvidence({...f.services,baseline:{verify},github:{verify:async()=>{calls++;return f.g;}}});
+  await assert.rejects(api.verify(f.request),/baseline/);assert.equal(calls,0);
+ }
+});
+test('baseline drift during evidence collection denies final confirmation',async()=>{
+ const f=await fixture();let reads=0;
+ const api=admissionEvidence({...f.services,baseline:{verify:async binding=>({...binding,verified:true,drift:++reads!==1})}});
+ await assert.rejects(api.verify(f.request),/baseline/);assert.equal(reads,2);
+});
+
+test('stalled baseline aborts before provider evidence and suppresses adapter error text',async()=>{
+ const f=await fixture();let signal,calls=0;
+ const api=admissionEvidence({...f.services,timeoutMS:100,baseline:{verify:async(_,context)=>{signal=context.signal;return new Promise(()=>{});}},github:{verify:async()=>{calls++;return f.g;}}});
+ await assert.rejects(api.verify(f.request),/baseline/);assert.equal(signal.aborted,true);assert.equal(calls,0);
+ await assert.rejects(admissionEvidence({...f.services,baseline:{verify:async()=>{throw Error('SECRET-BASELINE');}}}).verify(f.request),error=>!error.message.includes('SECRET-BASELINE'));
 });

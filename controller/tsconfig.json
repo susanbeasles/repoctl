@@ -8,9 +8,16 @@
     "allowImportingTsExtensions": true,
     "allowJs": true,
     "checkJs": false,
-    "types": ["@cloudflare/workers-types"],
-    "lib": ["ES2024"],
+    "types": [
+      "@cloudflare/workers-types",
+      "node"
+    ],
+    "lib": [
+      "ES2024"
+    ],
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }

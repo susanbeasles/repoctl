@@ -1,12 +1,14 @@
 import {canonical,digest} from '../ledger.mjs';
+import {baselineEvidence} from './baseline.ts';
 import {importPolicy} from '../authority/authorize.mjs';
 import {validateIntent,verifyApproval} from '../promotion.mjs';
 const hash=/^[a-f0-9]{64}$/;
 const exact=(v,n)=>v&&Object.getPrototypeOf(v)===Object.prototype&&Object.keys(v).sort().join()===n.sort().join();
 // Adapters are installed verifier capabilities, never caller URLs or booleans.
 // Archive verification must perform recovery against immutable retained objects.
-export function admissionEvidence({policy,github,history,archives,clock=()=>Date.now()}) {
+export function admissionEvidence({policy,github,history,archives,baseline,timeoutMS=10000,clock=()=>Date.now()}) {
  if(![policy?.current,github?.verify,history?.verify,archives?.verify].every(v=>typeof v==='function'))throw Error('Missing mandatory evidence adapter');
+ const baselines=baselineEvidence(baseline,timeoutMS);
  return {async verify(request){
   if(!exact(request,['operationID','repositoryID','intent','owner','validator'])||!hash.test(request.operationID??'')||!Number.isSafeInteger(request.repositoryID)||request.repositoryID<=0)throw Error('Invalid evidence admission');
   const accepted=await importPolicy(await policy.current(request.repositoryID));
@@ -14,6 +16,8 @@ export function admissionEvidence({policy,github,history,archives,clock=()=>Date
   if(a.payload!==b.payload||canonical(a.intent)!==canonical(request.intent))throw Error('Evidence approvals differ from intent');
   const p=validateIntent(a.intent,accepted,clock());
   if(p.nonce!==request.operationID||p.repositoryID!==request.repositoryID)throw Error('Evidence operation differs');
+  const bi={repositoryID:p.repositoryID,policyRevision:accepted.revision,policyDigest:accepted.digest,targetRef:accepted.targetRef,baseSHA:p.baseSHA};
+  await baselines.verify(bi);
   const gi={baseSHA:p.baseSHA,commitSHA:p.commitSHA,sourceSHA:p.sourceSHA,treeSHA:p.treeSHA};
   const hi={repositoryID:p.repositoryID,sequence:p.sequence,previousDigest:p.previousDigest,baseSHA:p.baseSHA,commitSHA:p.commitSHA};
   const ai={repositoryID:p.repositoryID,commitSHA:p.commitSHA,sourceSHA:p.sourceSHA,treeSHA:p.treeSHA,archiveDigests:p.archiveDigests};
@@ -35,6 +39,7 @@ export function admissionEvidence({policy,github,history,archives,clock=()=>Date
   const current=await importPolicy(await policy.current(p.repositoryID));
   if(canonical(current.executorTrust)!==canonical(accepted.executorTrust)||current.digest!==accepted.digest||current.revision!==accepted.revision||canonical([...current.ownerKeys.keys()])!==canonical([...accepted.ownerKeys.keys()])||canonical([...current.validatorKeys.keys()])!==canonical([...accepted.validatorKeys.keys()]))throw Error('Accepted policy changed during evidence verification');
   validateIntent(p,current,clock());
+  await baselines.verify(bi);
   return {operationID:request.operationID,verified:true,intentDigest:await digest(p),evidenceDigest,report};
  }};
 }

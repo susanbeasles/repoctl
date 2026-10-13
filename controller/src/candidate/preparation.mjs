@@ -1,4 +1,5 @@
 import {candidateGit} from './git-job.mjs';
+import {preparationIntent} from './intent.ts';
 import {mkdir,realpath,writeFile,lstat} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {createHash} from 'node:crypto';
@@ -20,7 +21,8 @@ export async function candidatePreparation({sourceGitDirectory,gitExecutable,rep
  await requireIndependentSource();
  const git=candidateGit(gitExecutable,maxBytes);
  return {async prepare(intent,outputDirectory) {
-  if(!intent||Object.keys(intent).sort().join()!=='baseSHA,repositoryID,sourceSHA'||intent.repositoryID!==repositoryID||![intent.baseSHA,intent.sourceSHA].every(v=>sha.test(v??''))||!isAbsolute(outputDirectory??''))throw Error('Invalid candidate preparation intent');
+  intent=preparationIntent(intent,repositoryID);
+  if(!isAbsolute(outputDirectory??''))throw Error('Invalid candidate preparation intent');
   const parent=await realpath(join(outputDirectory,'..'));
   const output=join(parent,outputDirectory.split('/').at(-1));
   if(output!==outputDirectory||output===source||output.startsWith(source+'/'))throw Error('Candidate output must be canonical and outside source Git directory');
