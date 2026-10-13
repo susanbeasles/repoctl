@@ -1,0 +1,1 @@
+{"schema":"workflow-depot-cloudflare-policy/v1","revision":1,"enabled":false,"authorizer":{},"executor":{},"targets":[],"maxArtifactBytes":5242880,"verification":{}}

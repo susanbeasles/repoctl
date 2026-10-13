@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {loadEnvironment} from '../environment.mjs';
+const rows=[{name:'CLOUDFLARE_API_TOKEN',value:'synthetic-cloudflare'},{name:'CLOUDFLARE_ACCOUNT_ID',value:'1a799c6e699d2ef7e87398692ce3ad7b'},{name:'ZONE_ID',value:'a'.repeat(32)}];
+const env={OP_ENVIRONMENT_ID:'fixture-environment',OP_SERVICE_ACCOUNT_TOKEN:'synthetic-bootstrap',PATH:'/bin'};
+test('Environment credentials reach only the child whitelist; bootstrap is stripped',async()=>{let auth;const result=await loadEnvironment(env,async options=>{auth=options.auth;return {environments:{getVariables:async id=>{assert.equal(id,env.OP_ENVIRONMENT_ID);return {variables:[...rows,{name:'NODE_OPTIONS',value:'malicious'}]};}}};});assert.equal(auth,env.OP_SERVICE_ACCOUNT_TOKEN);assert.equal(result.CLOUDFLARE_API_TOKEN,'synthetic-cloudflare');assert.equal(result.OP_SERVICE_ACCOUNT_TOKEN,undefined);assert.equal(result.NODE_OPTIONS,undefined);});
+test('missing ID fails before SDK authentication',async()=>{await assert.rejects(loadEnvironment({...env,OP_ENVIRONMENT_ID:''},()=>assert.fail('must not authenticate')),/OP_ENVIRONMENT_ID/);});
+test('wrong account and missing Cloudflare variable fail without printing values',async()=>{for(const variables of [rows.slice(1),rows.map(r=>r.name==='CLOUDFLARE_ACCOUNT_ID'?{...r,value:'wrong-secret'}:r)]){await assert.rejects(loadEnvironment(env,async()=>({environments:{getVariables:async()=>({variables})}})),e=>!e.message.includes('wrong-secret')&&!e.message.includes('synthetic-cloudflare'));}});
+test('SDK errors are sanitized',async()=>{await assert.rejects(loadEnvironment(env,async()=>{throw Error('synthetic-bootstrap secret');}),/^Error: 1Password Environment loading failed$/);});
