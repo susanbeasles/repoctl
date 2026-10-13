@@ -1,0 +1,64 @@
+name: Authorized deployment execution
+on:
+  workflow_call:
+    inputs:
+      request:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  execute:
+    if: github.repository == 'susanbeasles/delivery_control' && github.repository_id == '1405415291' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.workflow_ref == 'susanbeasles/delivery_control/.github/workflows/deploy.yml@refs/heads/main'
+    environment: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Require reviewed reusable-workflow revision
+        env:
+          WORKFLOW_DEPOT_SHA: ${{ vars.WORKFLOW_DEPOT_SHA }}
+        run: node -e 'if(!/^[a-f0-9]{40}$/.test(process.env.WORKFLOW_DEPOT_SHA || "")) throw Error("Configure reviewed WORKFLOW_DEPOT_SHA");'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: susanbeasles/workflow_depot
+          ref: ${{ vars.WORKFLOW_DEPOT_SHA }}
+          path: .deployment-capabilities
+          persist-credentials: false
+      - name: Test authorization and execution without live credentials
+        env:
+          DEPLOY_CAPABILITIES_ROOT: ${{ github.workspace }}/.deployment-capabilities
+        run: node --test test/deployments.test.mjs test/github-journal.test.mjs test/github-bundle.test.mjs test/workflow-runtime.test.mjs test/cloudflare-deployer.test.mjs
+      - name: Install pinned Environment SDK without lifecycle scripts
+        working-directory: .deployment-capabilities/capabilities/onepassword
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - id: preflight
+        run: node src/deployments.mjs preflight
+        env:
+          DEPLOY_REQUEST_JSON: ${{ inputs.request }}
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        id: source-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: susanbeasles
+          repositories: ${{ steps.preflight.outputs.repository_name }}
+          permission-contents: read
+          permission-actions: read
+      - name: Admit, authorize, load Environment, execute and record receipt
+        run: node src/workflow-runtime.mjs
+        env:
+          DEPLOY_REQUEST_JSON: ${{ inputs.request }}
+          SOURCE_READ_TOKEN: ${{ steps.source-token.outputs.token }}
+          JOURNAL_TOKEN: ${{ github.token }}
+          OP_ENVIRONMENT_ID: ${{ vars.OP_ENVIRONMENT_ID }}
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}

@@ -1,0 +1,10 @@
+{
+  "schema": "deployment-workflow-config/v1",
+  "enabled": false,
+  "accountID": "1a799c6e699d2ef7e87398692ce3ad7b",
+  "journalAnchorSHA": "",
+  "verifierSHA256": "",
+  "actorIDs": [],
+  "enrollment": {"ownerKeys": []},
+  "targets": {}
+}

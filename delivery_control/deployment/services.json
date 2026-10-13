@@ -1,0 +1,275 @@
+{
+  "schema": "delivery-control-services/v1",
+  "services": [
+    {
+      "target": "personal-control",
+      "purpose": "Shared login and OAuth issuer; existing personal-control Worker name retained, not owner of other applications",
+      "repository": "susanbeasles/personal-control",
+      "repository_id": "1408909065",
+      "module": ".",
+      "workers": [
+        "personal-control"
+      ],
+      "entry_point": "scripts/release.mjs personal-control",
+      "state": "blocked",
+      "blocker": "Private access not commissioned; public Access policies must remain deny Everyone; workflow authorization not commissioned"
+    },
+    {
+      "target": "ghcaretaker",
+      "purpose": "Audited repository-scoped GitHub and MCP tools using gateway identity",
+      "repository": "susanbeasles/ghcaretaker",
+      "repository_id": "1405513776",
+      "module": ".",
+      "workers": [
+        "ghcaretaker"
+      ],
+      "entry_point": "scripts/deploy.mjs",
+      "state": "blocked",
+      "blocker": "Dedicated app repo; historical duplicate in personal-control must not deploy this Worker; workflow authorization and private access not commissioned"
+    },
+    {
+      "target": "backup-control",
+      "purpose": "Webhook journal, backup dispatch and upload verification; capture paused",
+      "repository": "susanbeasles/backup-control",
+      "repository_id": "1407276404",
+      "module": "wrangler.json",
+      "workers": [
+        "backup-control"
+      ],
+      "entry_point": "Central retained artifact deployment; existing Wrangler template",
+      "state": "blocked",
+      "blocker": "Dedicated app repo; capture remains paused; historical personal-control duplicate must not deploy this Worker; private access and workflow authorization not commissioned"
+    },
+    {
+      "target": "backup-setup",
+      "purpose": "GitHub App setup and credential-holding Bootstrap Durable Object; setup redirects to owner pane",
+      "repository": "susanbeasles/backup-control",
+      "repository_id": "1407276404",
+      "module": "wrangler.setup.json",
+      "workers": [
+        "backup-setup"
+      ],
+      "entry_point": "Central retained artifact deployment; existing Wrangler template",
+      "state": "blocked",
+      "blocker": "Existing state and credential custody retained. Generic reusable GitHub App provisioning refactor queued; retirement requires explicit migration and separate approval."
+    },
+    {
+      "target": "build-provenance",
+      "purpose": "Stages artifacts and records build provenance",
+      "repository": "susanbeasles/workflow_depot",
+      "repository_id": "1405415683",
+      "module": "deployment/wrangler.provenance.jsonc",
+      "workers": [
+        "workflow-depot-build-provenance"
+      ],
+      "source_ref": "1b5decfec18504e0503cea320142d177851e1071",
+      "entry_point": "Existing retained artifact pipeline",
+      "state": "blocked",
+      "blocker": "Implementation on feat/fixed-integration-signing, absent main; ENABLED=false; policy disabled and targets empty"
+    },
+    {
+      "target": "deployment-evidence",
+      "purpose": "Private independent deployment evidence check",
+      "repository": "susanbeasles/workflow_depot",
+      "repository_id": "1405415683",
+      "module": "deployment/wrangler.evidence.jsonc",
+      "workers": [
+        "workflow-depot-deployment-evidence"
+      ],
+      "source_ref": "1b5decfec18504e0503cea320142d177851e1071",
+      "entry_point": "Existing retained artifact pipeline",
+      "state": "blocked",
+      "blocker": "Implementation absent main; EVIDENCE_ENABLED=false; policy disabled and targets empty"
+    },
+    {
+      "target": "deployment-authority",
+      "purpose": "Authorizes and revokes exact deployments and issues one-use execution permission",
+      "repository": "susanbeasles/workflow_depot",
+      "repository_id": "1405415683",
+      "module": "deployment/wrangler.authority.jsonc",
+      "workers": [
+        "workflow-depot-deployment-authority"
+      ],
+      "source_ref": "1b5decfec18504e0503cea320142d177851e1071",
+      "entry_point": null,
+      "state": "retired",
+      "blocker": "User requested Worker deletion. Hosting and remote execution removed; reusable authorization/execution modules run in delivery_control GitHub Actions."
+    },
+    {
+      "target": "cloudflare-deployer",
+      "purpose": "Executes authorized artifact deployments",
+      "repository": "susanbeasles/delivery_control",
+      "repository_id": "1405415291",
+      "module": "deployment/wrangler.deployer.jsonc",
+      "workers": [
+        "delivery-control-cloudflare-deployer"
+      ],
+      "source_ref": "07eb0deb59040c3c7e94796c105350a44a01a86f",
+      "entry_point": null,
+      "state": "retired",
+      "blocker": "User requested Worker deletion. Hosting and remote execution removed; reusable authorization/execution modules run in delivery_control GitHub Actions."
+    },
+    {
+      "target": "integration-source",
+      "purpose": "Existing integration source service template",
+      "repository": "susanbeasles/workflow_depot",
+      "repository_id": "1405415683",
+      "module": "deployment/wrangler.integration-source.jsonc",
+      "workers": [
+        "workflow-depot-integration-source"
+      ],
+      "source_ref": "1b5decfec18504e0503cea320142d177851e1071",
+      "entry_point": "Existing template; no commissioned deployment",
+      "state": "blocked",
+      "blocker": "Not deployed; template disabled with unresolved repository/configuration values"
+    },
+    {
+      "target": "integration-coordinator",
+      "purpose": "Existing integration coordinator service template",
+      "repository": "susanbeasles/workflow_depot",
+      "repository_id": "1405415683",
+      "module": "deployment/wrangler.integration-coordinator.jsonc",
+      "workers": [
+        "workflow-depot-integration-coordinator"
+      ],
+      "source_ref": "1b5decfec18504e0503cea320142d177851e1071",
+      "entry_point": "Existing template; no commissioned deployment",
+      "state": "blocked",
+      "blocker": "Not deployed; template disabled with unresolved repository/configuration values"
+    },
+    {
+      "target": "integration-events",
+      "purpose": "Existing integration event service template",
+      "repository": "susanbeasles/workflow_depot",
+      "repository_id": "1405415683",
+      "module": "deployment/wrangler.integration-events.jsonc",
+      "workers": [
+        "workflow-depot-integration-events"
+      ],
+      "source_ref": "1b5decfec18504e0503cea320142d177851e1071",
+      "entry_point": "Existing template; no commissioned deployment",
+      "state": "blocked",
+      "blocker": "Not deployed; template disabled with unresolved repository/configuration values"
+    },
+    {
+      "target": "signing-control",
+      "purpose": "Standalone signing application and matching container",
+      "repository": "susanbeasles/signing_control",
+      "repository_id": "1416201242",
+      "module": "deployment/deploy.mjs",
+      "workers": [
+        "signing-control"
+      ],
+      "entry_point": "Existing signer deployment module, invoked only through controller after commissioning",
+      "state": "blocked",
+      "blocker": "Not deployed; image and private bindings need approved configuration; deployment bootstrap must not replace runtime signer credential"
+    },
+    {
+      "target": "repoctl-cli",
+      "purpose": "Native macOS governance CLI artifact",
+      "repository": "susanbeasles/repoctl",
+      "repository_id": "1404914851",
+      "module": "scripts/build",
+      "workers": [],
+      "entry_point": "scripts/build",
+      "state": "blocked",
+      "blocker": "Artifact publication admission not commissioned; signing and notarization configuration unverified"
+    },
+    {
+      "target": "repoctl-controller",
+      "purpose": "Existing eleven-Worker disabled governance topology",
+      "repository": "susanbeasles/repoctl",
+      "repository_id": "1404914851",
+      "module": "controller/src/deployment/topology.mjs",
+      "workers": [],
+      "entry_point": "controller/scripts/plan-deployment.mjs",
+      "state": "blocked",
+      "blocker": "No approved prefix, receipt/recovery buckets or live qualification; do not invent Worker names or activate topology"
+    },
+    {
+      "target": "prosrus",
+      "purpose": "ProsRUs application; preserved implementation needs source resolution",
+      "repository": "susanbeasles/ProsRUs",
+      "repository_id": "1412827677",
+      "module": "wrangler.jsonc",
+      "workers": [
+        "job-stack-staging"
+      ],
+      "entry_point": "scripts/release.mjs (preserved source only; not approved for execution)",
+      "state": "blocked",
+      "blocker": "Preservation branch contains app; main README only. Template has UNCONFIGURED owner and zero database ID. Existing release applies Terraform and migrations; target policy and private access must be reviewed before execution",
+      "source_ref": "e185f8b61d331417c20576f1517f338ddc1ab8df"
+    },
+    {
+      "target": "delivery-control-source",
+      "purpose": "Controller workflow source publication; no additional running service",
+      "repository": "susanbeasles/delivery_control",
+      "repository_id": "1405415291",
+      "module": ".",
+      "workers": [],
+      "entry_point": "Reviewed source merge; no recursive dispatch",
+      "state": "source-only",
+      "blocker": ""
+    },
+    {
+      "target": "workflow-depot-source",
+      "purpose": "Reusable workflow and capability source publication; no additional running service",
+      "repository": "susanbeasles/workflow_depot",
+      "repository_id": "1405415683",
+      "module": ".",
+      "workers": [],
+      "entry_point": "Reviewed component source publication",
+      "state": "source-only",
+      "blocker": ""
+    },
+    {
+      "target": "secrets-authorizer",
+      "purpose": "Secrets Provisioner admission and two-signature authorization",
+      "repository": "susanbeasles/mcp_provisioner",
+      "repository_id": "1333557563",
+      "intended_repository": "susanbeasles/secrets-provisioner",
+      "source_ref": "60261cb7c1afa950d6a157760dd6fbb0b29fc529",
+      "module": "deployment/stages.json",
+      "workers": [
+        "secrets-authorizer"
+      ],
+      "entry_point": "Central workflow_dispatch; source extraction manifest only",
+      "state": "blocked",
+      "blocker": "Recovered disabled/unqualified implementation; three-stage private handoff and identity/storage extraction not yet qualified; no live credentials or resources"
+    },
+    {
+      "target": "secrets-provisioner",
+      "purpose": "Private browser recipe executor with encrypted recovery",
+      "repository": "susanbeasles/mcp_provisioner",
+      "repository_id": "1333557563",
+      "intended_repository": "susanbeasles/secrets-provisioner",
+      "source_ref": "60261cb7c1afa950d6a157760dd6fbb0b29fc529",
+      "module": "deployment/stages.json",
+      "workers": [
+        "secrets-provisioner"
+      ],
+      "entry_point": "Central workflow_dispatch; source extraction manifest only",
+      "state": "blocked",
+      "blocker": "Recovered disabled/unqualified implementation; three-stage private handoff and identity/storage extraction not yet qualified; no live credentials or resources"
+    },
+    {
+      "target": "secrets-transfer-cleanup",
+      "purpose": "Verified destination transfer and temporary cleanup",
+      "repository": "susanbeasles/mcp_provisioner",
+      "repository_id": "1333557563",
+      "intended_repository": "susanbeasles/secrets-provisioner",
+      "source_ref": "60261cb7c1afa950d6a157760dd6fbb0b29fc529",
+      "module": "deployment/stages.json",
+      "workers": [
+        "secrets-transfer-cleanup"
+      ],
+      "entry_point": "Central workflow_dispatch; source extraction manifest only",
+      "state": "blocked",
+      "blocker": "Recovered disabled/unqualified implementation; three-stage private handoff and identity/storage extraction not yet qualified; no live credentials or resources"
+    }
+  ],
+  "retired_workers": [
+    "workflow-depot-deployment-authority",
+    "delivery-control-cloudflare-deployer"
+  ]
+}
