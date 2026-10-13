@@ -14,14 +14,24 @@ promotion. Event receipts are observations, not signed authorization receipts.
 ```sh
 cd controller
 npm ci --ignore-scripts --no-audit --no-fund
+npm run check
 npm test
 npm run check:runtime
 ```
 
-Node 22+ is required for tests. Production uses Cloudflare's Web Crypto runtime.
-Wrangler is pinned in the controller lockfile. Its Miniflare dependency uses a scoped Sharp 0.35.5 override for [GHSA-wq5f-xc86-pv6w](https://github.com/advisories/GHSA-wq5f-xc86-pv6w); the updated audit reports zero findings. `npm test` exercises cryptography and mocked storage. `check:runtime` builds ten checked-in deployment bundles with Wrangler dry-run and executes twelve existing workerd qualifiers against real SQLite/R2 runtime interfaces. It checks private entrypoints, replay reservations, enrollment recovery, signed checkpoint/receipt recovery and policy admission. Child processes use an isolated home and do not inherit provider credentials or Node injection settings; only newly created temporary artifacts are removed. No provider deployment or live GitHub qualification is performed. A failing bundle or qualifier stops the command.
+Node 22.18+ is required for tests, which import erasable TypeScript directly using
+[Node's built-in type stripping](https://nodejs.org/download/release/v22.18.0/docs/api/typescript.html).
+`npm run check` performs strict checking of typed candidate/admission modules with
+the pinned compiler and official Workers types. Legacy modules remain unchanged.
+Production uses Cloudflare's Web Crypto runtime.
+Wrangler is pinned in the controller lockfile. Its Miniflare dependency uses a scoped Sharp 0.35.5 override for [GHSA-wq5f-xc86-pv6w](https://github.com/advisories/GHSA-wq5f-xc86-pv6w); the updated audit reports zero findings. `npm test` exercises cryptography and mocked storage. `check:runtime` builds ten checked-in deployment bundles with Wrangler dry-run and executes thirteen workerd qualifiers against real SQLite/R2 runtime interfaces. It checks private entrypoints, replay reservations, enrollment recovery, signed checkpoint/receipt recovery, generation transactions and policy admission. Child processes use an isolated home and do not inherit provider credentials or Node injection settings; only newly created temporary artifacts are removed. No provider deployment or live GitHub qualification is performed. A failing bundle or qualifier stops the command.
 
-On October 7, 2026, all ten bundles and twelve runtime qualifiers passed on the operator's Mac. Public ingress remains closed and rollout flags remain disabled. The everyday CLI and live hardware/provider onboarding remain separate incomplete requirements.
+On October 7, 2026, strict TypeScript checking,147 controller tests, all ten bundles
+and thirteen runtime qualifiers passed on the operator's Mac. Admission additionally
+requires an independently commissioned designated-candidate signature binding;
+the workerd check denies its absence. Public ingress remains closed and rollout
+flags remain disabled. The everyday CLI and live hardware/provider onboarding
+remain separate incomplete requirements.
 
 ## Provisioning prerequisites
 

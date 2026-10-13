@@ -1,9 +1,9 @@
 # repoctl — native CLI preview and promotion contract
 
 This preview adds a native Swift policy-sealing CLI, SEP and Keychain signing,
-and optional Developer ID signing/notarization scripts. Native source has not
-been compiled in the Linux authoring environment. Run the Mac tests before
-using it. GitHub installation and promotion remain an implementation contract.
+and optional Developer ID signing/notarization scripts. Native source and checks have been compiled and exercised on the operator’s
+Mac. Production hardware enrollment and signed release qualification remain
+pending. GitHub installation and promotion remain an implementation contract.
 
 ## Build and install on macOS
 
@@ -24,9 +24,20 @@ export REPOCTL_NOTARY_PROFILE="YOUR_EXISTING_NOTARYTOOL_KEYCHAIN_PROFILE"
 
 Omit both variables for a development build, or set only the identity for a
 signed build. Notarization uses existing credentials; it does not create them.
-Distribution is an app bundle containing a universal Mach-O CLI. The app bundle
-is stapled, then zipped. The installer places it under `/usr/local/libexec` and
+Distribution is an app bundle containing the native arm64 or x86_64 Mach-O CLI
+selected for this Mac. When notarization is requested, the app bundle
+is stapled before the final ZIP is created. The installer places it under `/usr/local/libexec` and
 links `/usr/local/bin/repoctl`. It is not yet a signed PKG installer.
+
+Build/install accepts an optional new output directory. The default `dist` must
+not exist; repeat builds require a fresh destination. Existing bundles, ZIPs and
+symlink destinations are refused before compilation/signing. A failed new build
+retains its own partial output for inspection. For example:
+
+```sh
+./scripts/build /private/tmp/repoctl-build-new
+./scripts/install /private/tmp/repoctl-install-new
+```
 
 ## Seal a policy
 
@@ -310,3 +321,125 @@ OIDC-authorized central execution and rotation. [Implementation status and trust
 boundaries](docs/IMPLEMENTATION-STATUS.md) distinguish tested primitives from
 missing production integrations. The broker is not exposed by the current
 webhook Worker. Project CI never receives a production promotion App key.
+
+## Bounded GitHub transport
+
+Native GitHub requests use the selected `gh` account and a 60-second deadline.
+A helper that does not exit receives termination followed by a forced stop after
+two seconds. Input and output use private temporary files, removed on return;
+provider stderr is not included in errors. A timed-out mutation has an unknown
+outcome and is never automatically retried. Read back remote state before resuming
+reconciliation.
+
+`Tests/mac-github-transport.sh` exercises JSON input, credential-output suppression,
+and a helper that ignores termination. This transport behavior does not implement
+the pending `init`, `submit`, production baseline-authority integration, or
+authenticated controller operation-status transport.
+
+### Actions authority during protection reconciliation
+
+`protect apply` and `protect verify` check the full managed Actions actor/event
+policy and read-only workflow token settings. The policy must be unique and
+repository-owned. An active policy name alone is insufficient. These checks run
+before protection mutations and again before releasing the bootstrap lock.
+
+The default expects owner-only Actions. To verify an explicitly authorized Actions
+App, pass `--actions-app SLUG` after `--writer-app SLUG`. This selects the exact
+owner/App actor policy; it does not rewrite it or infer Actions authority from the
+promotion writer. Unselected actors, extra events, inherited name collisions,
+duplicate policies and write-enabled workflow tokens block reconciliation.
+
+`Tests/mac-protection-drift.sh` exercises the native CLI against a synthetic GitHub
+transport and verifies rejection before mutation. This checks configuration;
+actual GitHub rule enforcement and the complete promotion path still require
+live qualification.
+
+### Candidate construction progress
+
+The [isolated candidate preparation adapter](docs/CANDIDATE-PREPARATION.md) now
+preserves source history and applies submitted changes onto a pinned protected
+base using a separate bare Git index. Real Git tests cover binary changes,
+conflicts, staged-work preservation and refusal to execute configured filters.
+Its output awaits signing and independent snapshot retention; native `submit`
+and the complete signed integration-generation workflow remain unfinished.
+
+### Read-only native status
+
+`repoctl status OWNER/REPO` observes the exact personal repository using the
+selected GitHub CLI owner identity. With no argument, it reads `repository` from
+local `.repoctl.json`; it executes no configured project command. The report
+contains numeric identities, default commit, repository/inherited ruleset and
+Actions-policy inventory, workflow token permissions and immutable release
+settings. Identity and default tip are read again before output; changes fail
+rather than combining observations from different repository states.
+
+Missing provider permissions fail the command, rather than becoming an empty
+inventory. Native ruleset/Actions inventories reject pages over 100 entries and
+stop after 20 full pages instead of continuing indefinitely. The command makes
+GET requests only. Its `observed-not-verified` label
+is intentional: inventory does not demonstrate effective enforcement. Controller
+pending operations, independent receipts and policy compliance remain explicitly
+unavailable until authenticated operator transport and baseline verification are
+implemented. This status command cannot approve or authorize promotion.
+
+`Tests/mac-status.sh` compiles and exercises the native CLI, configured default
+target, foreign owner/name rejection, identity/tip drift, permission failure and
+provider-error suppression. Live personal-repository observation is a separate
+qualification from these synthetic provider cases.
+
+### Approved configuration doctor
+
+`repoctl doctor [--baseline FILE]` compares live personal repository configuration
+with an already enrolled exact-byte baseline (default `.repoctl-baseline.json`).
+It checks complete ruleset/Actions inventories and detail bodies, numeric owner
+and repository identity, default branch, repository settings, workflow token
+permissions and immutable releases; it repeats collection before success. Drift,
+missing permissions or missing enrollment fail without mutations or baseline
+replacement. See [baseline contract and remaining production gates](docs/REPOSITORY-DOCTOR.md).
+
+The existing policy seal remains a preview with documented trust-lifecycle and
+hardware-origin limitations. Doctor's configuration comparison is not an
+independently accepted production policy or promotion authorization. Mandatory
+remote admission/execution drift checks and behavioral qualification remain
+unfinished. `Tests/mac-doctor.sh` qualifies the native comparator and checks that
+the actual CLI rejects unenrolled baselines before provider access.
+
+### Actions activation order
+
+`actions apply` confirms the exact actor/event policy, sets read-only workflow
+tokens with automatic PR approval disabled, reads those settings back, and checks
+the actor/event policy again before enabling Actions. A failed or ambiguous
+permission write, mismatched readback, or concurrent policy drift stops activation.
+The command never automatically retries a failed mutation or disables an existing
+repository's Actions. Existing action allowlists remain intact.
+
+`Tests/mac-actions-activation.sh` exercises the compiled native CLI with a disabled
+fixture repository that initially has write token permissions. It checks success,
+permission failure, token/policy drift and lost enable responses, including exact
+mutation counts and preserved selected-action policy. This qualifies sequencing,
+not the still-pending full `init` or live governance path.
+
+### Signed candidate construction job
+
+The [isolated signing job](docs/CANDIDATE-SIGNING.md) imports and reconstructs the
+prepared snapshot, requires independent immutable-source confirmation, creates
+one child of the pinned base, and verifies its SSH signature against the separate
+configured candidate key. It retains a signed object awaiting integration
+publication, with no refs or promotion authority. Native Git/SSH fixture tests
+exercise success, corrupted preparation/key identity, uncertain calls and timeout.
+Real remote snapshot/signer adapters and authenticated native `submit` remain
+required; temporary software test signatures are not production enrollment.
+
+### Integration generation publication
+
+The [create-only integration publisher](docs/INTEGRATION-GENERATION.md) checks an
+already uploaded signed candidate, current base and immutable namespace before
+creating a fresh int generation. A durable bound operation journal permits
+readback reconciliation without retrying an uncertain create, adopting a foreign
+ref, or changing any ref. Actual remote journal/namespace/custody adapters, Git
+object upload and disposable GitHub qualification remain required.
+
+The generation journal now has a private Durable Object transaction adapter. Its
+local workerd qualifier demonstrates atomic reservations/CAS, restart persistence
+and retained collision tombstones, and is included in `npm run check:runtime`.
+Remote job wiring and live generation/provider qualification remain outstanding.
