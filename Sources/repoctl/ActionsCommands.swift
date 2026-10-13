@@ -13,13 +13,15 @@ func actionsPolicy(ownerID: Int, appID: Int? = nil) -> [String: Any] {
 }
 func actionPolicies(_ client: GitHubClient, _ repo: String) throws -> [[String: Any]] {
     var result: [[String: Any]] = [], page = 1
-    while true {
+    while page <= 20 {
         guard let response = try client.request("repos/\(repo)/actions/policies?per_page=100&page=\(page)&has_parents=true") as? [String: Any],
               let items = response["policies"] as? [[String: Any]] else { throw Failure("Invalid Actions policy inventory") }
+        try require(items.count <= 100, "Oversized Actions policy page")
         result += items
         if items.count < 100 { return result }
         page += 1
     }
+    throw Failure("Actions policy inventory exceeds 2000 entries; observation incomplete")
 }
 func normalizedActions(_ policy: [String: Any]) -> [String: Any] {
     var result: [String: Any] = [:]
@@ -42,10 +44,17 @@ func reconcileActions(_ client: GitHubClient, _ repo: String, _ desired: [String
         _ = try client.request("repos/\(repo)/actions/policies", method: "POST", body: desired)
     }
     if apply {
-        // Confirm server enforcement before enabling workflows; preserve allowed_actions.
+        // Confirm actor/event enforcement and narrow the workflow token before
+        // enabling workflows. Preserve allowed_actions and existing allowlists.
+        try reconcileActions(client, repo, desired, apply: false)
+        _ = try client.request("repos/\(repo)/actions/permissions/workflow", method: "PUT", body: ["default_workflow_permissions": "read", "can_approve_pull_request_reviews": false])
+        let workflow = try client.request("repos/\(repo)/actions/permissions/workflow") as? [String: Any]
+        try require(workflow?["default_workflow_permissions"] as? String == "read" && workflow?["can_approve_pull_request_reviews"] as? Bool == false,
+                    "Workflow token policy not confirmed; Actions was not enabled")
+        // Repeat policy observation after the token change; a concurrent drift
+        // must not be silently repaired or followed by Actions activation.
         try reconcileActions(client, repo, desired, apply: false)
         _ = try client.request("repos/\(repo)/actions/permissions", method: "PUT", body: ["enabled": true])
-        _ = try client.request("repos/\(repo)/actions/permissions/workflow", method: "PUT", body: ["default_workflow_permissions": "read", "can_approve_pull_request_reviews": false])
     }
 }
 func actionsCommand(_ args: [String]) throws {

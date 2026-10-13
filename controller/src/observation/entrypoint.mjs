@@ -8,6 +8,7 @@ async function observationRequest(env,request,brokerMode=false){
   if(env.OBSERVATION_ENABLED!=='true'||typeof env.OBSERVATION_CONFIG_JSON!=='string'||!['OBSERVATION_AUTHORITY','OBSERVATION_BROKER'].every(n=>typeof env[n]?.fetch==='function'))return Response.json({error:'observation_not_configured'},{status:503,headers});
   const route=new URL(request.url).pathname;
   if(request.method!=='POST'||!(brokerMode?['/v1/evidence/authorization','/v1/evidence/completion']:['/v1/ledger/promotion-observation']).includes(route))return Response.json({error:'not_found'},{status:404,headers});
+  if(brokerMode&&route==='/v1/evidence/authorization'&&typeof env.OBSERVATION_BASELINE?.fetch!=='function')return Response.json({error:'baseline_not_configured'},{status:503,headers});
   try{
    const reader=request.body?.getReader();if(!reader)throw Error('Missing input');let size=0;const chunks=[];for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>8192){await reader.cancel();throw Error('Oversized input');}chunks.push(value);}
    const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}const body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
@@ -18,7 +19,7 @@ async function observationRequest(env,request,brokerMode=false){
      if(view.record?.intent?.repository!==config.repository||view.record.intent.repositoryID!==config.repositoryID||view.record.intent.branch!==config.branch||view.record.operation?.targetRef!==`refs/heads/${config.branch}`)throw Error('Observed repository differs');return view;},check:r=>boundJSON(env.OBSERVATION_AUTHORITY,'/v1/authorization/check',r)};
    const github=githubObserver(config);
    const observer=completionObserver({authority,broker:{lease:operationID=>boundJSON(env.OBSERVATION_BROKER,'/v1/broker/lease-observation',{operationID})},github});
-   if(brokerMode){const verifier=brokerVerifier({authority,completion:observer,github});return Response.json(await (route.endsWith('/authorization')?verifier.authorization(body):verifier.completion(body)),{headers});}
+   if(brokerMode){const verifier=brokerVerifier({authority,completion:observer,github,baseline:{verify:binding=>boundJSON(env.OBSERVATION_BASELINE,'/v1/baseline/verify',{binding})}});return Response.json(await (route.endsWith('/authorization')?verifier.authorization(body):verifier.completion(body)),{headers});}
    return Response.json(await observer.verify(body),{headers});
   }catch{return Response.json({error:'promotion_observation_denied'},{status:403,headers});}
 }

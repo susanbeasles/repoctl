@@ -80,3 +80,51 @@ No live deployment or enrollment is implied by a successful dry-run. Finish thes
 - [Cloudflare Durable Object pricing and free-plan limits](https://developers.cloudflare.com/durable-objects/platform/pricing/)
 - [GitHub App manifest enrollment](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest)
 - [GitHub App private-key management](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)
+
+## Baseline at credential issuance
+
+The independent broker authorization observer now requires remote baseline
+verification before reading the candidate and again before confirming current
+authority. The binding fixes retained repository ID, accepted policy revision and
+digest, protected target and base SHA. `OBSERVATION_BASELINE` is mandatory for
+`/v1/evidence/authorization`; absent binding returns503 before downstream calls.
+Drift, wrong binding or unavailable verifier blocks credential issuance through
+the existing `verifyAuthorization` path. Local doctor output cannot substitute.
+
+Completion observation deliberately does not require a currently healthy baseline:
+it independently proves an already performed update against retained approvals
+and issued lease. Removing the baseline service or observing later drift cannot
+be used to discard historical completion or prevent credential cleanup/receipts.
+This observer cannot mint credentials in that recovery path.
+
+This increment verifies the pre-issuance gate. A fresh OIDC-authenticated execution
+check immediately before the executor PATCH still needs implementation; issuance
+checks alone cannot guarantee controls remain unchanged afterward. Provider ref
+transaction/restrictions and effective drift checks must be qualified live before
+production enablement. No baseline authority is commissioned here.
+
+## Fresh authenticated execution check
+
+POST `/v1/execution/check` now accepts only operationID and executor OIDC token
+through the same disabled-by-default broker/coordinator boundary. It requires the
+exact current hardware-authorized promotion, accepted policy/ref, live issued
+lease and provider lifetime, and the pinned executor run/attempt OIDC signature.
+It repeats independent current authorization, baseline and fast-forward
+verification; retained operation/lease and lifetime must remain unchanged after
+collection. Response contains exact public intent/expiry only, with no-store.
+It issues no credential, reserves no new authority and changes no Git ref.
+
+Both executor source copies now obtain fresh OIDC and call this check after local
+GitHub candidate/tip observations and immediately before the single force:false
+PATCH. Denial, changed intent or mismatched/expired lease stops PATCH while
+credential revocation and independent completion reporting still run. Existing
+check responses cannot authorize a different candidate or extend the lease.
+Repeated read-only checks are not additional token issuance; only the first lease
+request can mint a token. An absent issued lease denies before JWKS/authority.
+
+This reduces the stale-authorization window; it does not make GitHub's REST ref
+update an atomic transaction with external policy observation. Effective provider
+restrictions and live governance must still be qualified. Controller/Worker tests
+use actual RSA OIDC verification with synthetic provider/service responses;
+local workerd bundles/qualifiers pass, but production endpoint remains disabled
+and uncommissioned. No live protected ref or credential was mutated.

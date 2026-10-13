@@ -6,7 +6,7 @@ import {digest, putArchive} from './ledger.mjs';
 export default {
   async fetch(request, env) {
     const path=new URL(request.url).pathname;
-    if(['/v1/execution/lease','/v1/execution/complete'].includes(path)){
+    if(['/v1/execution/lease','/v1/execution/check','/v1/execution/complete'].includes(path)){
       const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
       if(request.method!=='POST')return Response.json({error:'method_not_allowed'},{status:405,headers});
       if(!runtimeReady(env)||!env.BROKER_COORDINATOR)return Response.json({error:'broker_not_configured'},{status:503,headers});

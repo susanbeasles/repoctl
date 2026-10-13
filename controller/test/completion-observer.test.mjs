@@ -5,7 +5,7 @@ import {base64,digest,promotionPayload} from '../src/ledger.mjs';
 const hash='a'.repeat(64),a='a'.repeat(40),b='b'.repeat(40),c='c'.repeat(40);
 async function fixture(){
  const p={repositoryID:1,sequence:1,previousDigest:hash,baseSHA:a,commitSHA:b,sourceSHA:c,treeSHA:a,policyDigest:hash,evidenceDigest:hash,archiveDigests:[hash],nonce:hash,expiresAt:1000000};
- const record={operation:{id:hash,state:'authorized',operation:'promote',repositoryID:1,targetRef:'refs/heads/main',authorizationProvider:'hardware',hardwareEnrollmentVerified:true,policyDigest:hash,runID:5,runAttempt:1,expiresAt:1000},intent:{repository:'owner/repo',repositoryID:1,branch:'main',baseSHA:a,commitSHA:b,treeSHA:a},trust:{}};
+ const record={operation:{id:hash,state:'authorized',operation:'promote',repositoryID:1,targetRef:'refs/heads/main',authorizationProvider:'hardware',hardwareEnrollmentVerified:true,policyDigest:hash,policyRevision:1,runID:5,runAttempt:1,expiresAt:1000},intent:{repository:'owner/repo',repositoryID:1,branch:'main',baseSHA:a,commitSHA:b,treeSHA:a},trust:{}};
  const payload=base64(new TextEncoder().encode(JSON.stringify(p))),bundle={owner:{payload},validator:{payload},executionOwner:{}};
  const saved={record,bundle,bundleDigest:await digest(bundle),enrollmentProofDigest:hash,state:'authorized'};
  const view=await authorityCompletionView(saved,hash),lease={operationID:hash,recordDigest:await digest(record),state:'issued',runID:5,runAttempt:1,expiresAt:900,providerExpiresAt:4000};
@@ -36,12 +36,32 @@ test('moving main or retained approval during observation cannot confirm complet
 import {brokerVerifier} from '../src/observation/broker-verifier.mjs';
 test('broker pre-write verification repeats current authority and exact fast-forward observations',async()=>{
  const f=await fixture();let checks=0;f.config.authority.check=async r=>{checks++;assert.deepEqual(r.record,undefined);return {operationID:hash,accepted:true};};f.config.github.tip=async()=>a;
- const verifier=brokerVerifier({authority:f.config.authority,github:f.config.github,completion:completionObserver(f.config)}),request={operationID:hash,operation:f.view.record.operation,intent:f.view.record.intent};
+ const verifier=brokerVerifier({authority:f.config.authority,github:f.config.github,baseline:{verify:async binding=>({...binding,verified:true,drift:false})},completion:completionObserver(f.config)}),request={operationID:hash,operation:f.view.record.operation,intent:f.view.record.intent};
  assert.equal((await verifier.authorization(request)).verified,true);assert.equal(checks,1);
  f.config.authority.check=async()=>({operationID:hash,accepted:false});await assert.rejects(verifier.authorization(request));
 });
 test('broker completion verifies retained request and issued lease without minting authority',async()=>{
- const f=await fixture(),verifier=brokerVerifier({authority:f.config.authority,github:f.config.github,completion:completionObserver(f.config)}),request={operationID:hash,operation:f.view.record.operation,intent:f.view.record.intent};
+ const f=await fixture(),verifier=brokerVerifier({authority:f.config.authority,github:f.config.github,baseline:{verify:async binding=>({...binding,verified:true,drift:false})},completion:completionObserver(f.config)}),request={operationID:hash,operation:f.view.record.operation,intent:f.view.record.intent};
  assert.equal((await verifier.completion(request)).verified,true);await assert.rejects(verifier.completion({...request,intent:{...request.intent,commitSHA:c}}));
  f.lease.state='issuing';await assert.rejects(verifier.completion(request));
+});
+
+test('pre-issuance baseline drift and unavailable verifier block authorization while completion stays available',async()=>{
+ const f=await fixture();f.config.github.tip=async()=>a;f.config.authority.check=async()=>({operationID:hash,accepted:true});
+ const request={operationID:hash,operation:f.view.record.operation,intent:f.view.record.intent};
+ let commits=0;const github={...f.config.github,commit:async id=>{commits++;return f.config.github.commit(id);}};
+ for(const baseline of [undefined,{verify:async binding=>({...binding,verified:true,drift:true})}]){
+  const verifier=brokerVerifier({authority:f.config.authority,github,baseline,completion:completionObserver(f.config)});
+  await assert.rejects(verifier.authorization(request),/baseline/);assert.equal(commits,0);
+ }
+});
+
+test('baseline drift during issuance observation denies without obstructing historical completion',async()=>{
+ const f=await fixture();f.config.github.tip=async()=>a;f.config.authority.check=async()=>({operationID:hash,accepted:true});let reads=0;
+ const request={operationID:hash,operation:f.view.record.operation,intent:f.view.record.intent};
+ const verifier=brokerVerifier({authority:f.config.authority,github:f.config.github,baseline:{verify:async binding=>({...binding,verified:true,drift:++reads!==1})},completion:completionObserver(f.config)});
+ await assert.rejects(verifier.authorization(request),/baseline/);assert.equal(reads,2);
+ f.config.github.tip=async()=>b;
+ const recovery=brokerVerifier({authority:f.config.authority,github:f.config.github,completion:completionObserver(f.config)});
+ assert.equal((await recovery.completion(request)).verified,true);
 });

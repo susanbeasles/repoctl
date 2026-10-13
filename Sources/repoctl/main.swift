@@ -13,18 +13,6 @@ func status(_ value: OSStatus) throws {
     if value != errSecSuccess { throw Failure(SecCopyErrorMessageString(value, nil) as String? ?? "Security error \(value)") }
 }
 let service = "repoctl.policy.v1"
-struct Trust: Codable {
-    let format: Int
-    let provider: String
-    let publicKey: Data
-    let revision: Int
-    let acceptedSignature: Data
-}
-struct Seal: Codable {
-    let format: Int
-    let revision: Int
-    let signature: Data
-}
 func account(_ path: String) -> String {
     URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
 }
@@ -92,28 +80,6 @@ func publicBytes(_ key: SecKey) throws -> Data {
     }
     return data as Data
 }
-func payload(_ data: Data, revision: Int) -> Data {
-    // Exact-byte sealing deliberately makes formatting edits detectable too.
-    var result = Data("repoctl-policy-v1\nrevision:\(revision)\n".utf8)
-    result.append(data)
-    return result
-}
-func verifySignature(_ data: Data, seal: Seal, trust: Trust) throws {
-    try require(seal.format == 1 && trust.format == 1, "Unsupported seal version")
-    try require(seal.revision == trust.revision && seal.signature == trust.acceptedSignature, "Unapproved revision or rollback detected")
-    var error: Unmanaged<CFError>?
-    let attrs: [String: Any] = [kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-        kSecAttrKeyClass as String: kSecAttrKeyClassPublic, kSecAttrKeySizeInBits as String: 256]
-    guard let key = SecKeyCreateWithData(trust.publicKey as CFData, attrs as CFDictionary, &error) else { throw Failure("Invalid enrolled public key") }
-    try require(SecKeyVerifySignature(key, .ecdsaSignatureMessageX962SHA256,
-        payload(data, revision: seal.revision) as CFData, seal.signature as CFData, &error), "Policy signature invalid; operation blocked")
-}
-func verifyPolicy(_ path: String) throws {
-    guard let trust = try readTrust(path) else { throw Failure("Policy is not enrolled; cannot verify as sealed") }
-    let bytes = try Data(contentsOf: URL(fileURLWithPath: path))
-    let seal = try JSONDecoder().decode(Seal.self, from: Data(contentsOf: URL(fileURLWithPath: path + ".seal.json")))
-    try verifySignature(bytes, seal: seal, trust: trust)
-}
 func verifyExecutable() throws {
     // Installed bundle carries its expected signer requirement as a sealed resource.
     // Development builds without a bundle are explicitly unprotected.
@@ -131,6 +97,10 @@ func run() throws {
     let args = Array(CommandLine.arguments.dropFirst())
     if args.isEmpty || args == ["--help"] {
         print("""
+        repoctl doctor [--baseline FILE]
+        repoctl doctor --help
+        repoctl status [OWNER/REPO]
+        repoctl status --help
         repoctl policy seal FILE [--provider sep|keychain] --approve
         repoctl policy verify FILE
         repoctl policy status FILE
@@ -140,7 +110,7 @@ func run() throws {
         repoctl security --help
         repoctl actions inspect|plan|apply|verify OWNER/REPO [--app SLUG]
         repoctl actions --help
-        repoctl protect plan|apply|verify OWNER/REPO --writer-app SLUG
+        repoctl protect plan|apply|verify OWNER/REPO --writer-app SLUG [--actions-app SLUG]
         repoctl protect --help
         repoctl app plan CONFIG
         repoctl app --help
@@ -154,6 +124,8 @@ func run() throws {
         """)
         return
     }
+    if args.first == "doctor" { try doctorCommand(args); return }
+    if args.first == "status" { try statusCommand(args); return }
     if args.first == "app" { try appCommand(args); return }
     if args.first == "approval" { try approvalCommand(args); return }
     if args.first == "protect" { try protectionCommand(args); return }
