@@ -1,0 +1,71 @@
+{
+  "repository": "susanbeasles/repoctl",
+  "commit": "3ab0fb003ec0c4d5cb37dfa85f3f91df6c273131",
+  "component": "controller",
+  "original_files": [
+    {
+      "path": "src/provisioning/manifest.mjs",
+      "sha256": "de7b0b872e76938d489f34a409137b00daf1af3a575cb8f1f83a251fe94adeca"
+    },
+    {
+      "path": "src/provisioning/plan.mjs",
+      "sha256": "741fdfa3b22445c974e23aa972cc5ec855b275e6b59de4f81b22042fe3a28c23"
+    },
+    {
+      "path": "src/provisioning/registration.mjs",
+      "sha256": "c81e40a707e9895d335714f4ce26e0e67b3d8afd35900991e0451abfcab971e5"
+    },
+    {
+      "path": "src/enrollment/journal.mjs",
+      "sha256": "97c91b1a44cc27dcf14ac0503266e256df543e75bec3d86ade9d512484364926"
+    },
+    {
+      "path": "src/enrollment/github.mjs",
+      "sha256": "a1b60054d13bb49c187d430669a3cabe282cd3f6d95d8eddfc338d5d6c725e3a"
+    },
+    {
+      "path": "src/enrollment/app-vault.mjs",
+      "sha256": "e8b20adc79b4fa17b53bfacc2f837b4c7c2cb0ed6675650c1c6fe08f712ab78e"
+    },
+    {
+      "path": "src/enrollment-authority/service.mjs",
+      "sha256": "2adcde086476c07eb061ad68b1591ef7a3b53add5de63730636ea73e6bd83b9f"
+    },
+    {
+      "path": "src/runtime/app-signer.mjs",
+      "sha256": "15894f0ec550e957001526bd764c513d06e72e15ab4be3cc0170ba4d935b215f"
+    },
+    {
+      "path": "src/ledger.mjs",
+      "sha256": "2159ba0e1b700c80c917f6bf6203a370de793df2994e1c45197af4f91dabde45"
+    },
+    {
+      "path": "src/promotion.mjs",
+      "sha256": "958fb484ffca40d437319f7d42167cc2f3156efe5ab4c071aca51552cd01e936"
+    },
+    {
+      "path": "test/registration.test.mjs",
+      "sha256": "0902f8ac82c14346411c035df7f7869dbba15d2a2482a2ab4e596d985b0835f4"
+    },
+    {
+      "path": "test/app-plan.test.mjs",
+      "sha256": "71db5c7cff081e50e39b1793ef1d40117b6df04c075c4d26bb8c10c1a990936c"
+    },
+    {
+      "path": "test/enrollment-journal.test.mjs",
+      "sha256": "85f5eda7e2ac05ba12e730b310272da7a3a9fc818c8589cd70953fe0fd307222"
+    },
+    {
+      "path": "test/enrollment-github.test.mjs",
+      "sha256": "4737acdf55172887acdd9d365c70db9d8f55094084059628bc5e00a866dc78c1"
+    },
+    {
+      "path": "test/enrollment-approval.test.mjs",
+      "sha256": "db60a57765c1e7bc19bdcec480fe6b6276619283c6af0abc9458cd4581b87fbb"
+    },
+    {
+      "path": "test/app-vault.test.mjs",
+      "sha256": "43ff465f16ffa2ff227fe01b21ccf4f600eaa9379f40b3946a1370c2096a8c83"
+    }
+  ]
+}

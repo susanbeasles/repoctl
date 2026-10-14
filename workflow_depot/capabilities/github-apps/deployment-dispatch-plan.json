@@ -1,0 +1,25 @@
+{
+  "protocol": "repoctl-app-plan-v1",
+  "owner": "susanbeasles",
+  "role": "deployment-dispatch",
+  "repositories": [
+    "susanbeasles/delivery_control"
+  ],
+  "manifest": {
+    "name": "Vespoli Deployment Dispatch",
+    "url": "https://vespoli.me",
+    "redirect_url": "https://provision.vespoli.me/github/callback",
+    "public": false,
+    "default_permissions": {
+      "actions": "write"
+    },
+    "default_events": [],
+    "hook_attributes": {
+      "active": false
+    }
+  },
+  "manifestBytes": "eyJkZWZhdWx0X2V2ZW50cyI6W10sImRlZmF1bHRfcGVybWlzc2lvbnMiOnsiYWN0aW9ucyI6IndyaXRlIn0sImhvb2tfYXR0cmlidXRlcyI6eyJhY3RpdmUiOmZhbHNlfSwibmFtZSI6IlZlc3BvbGkgRGVwbG95bWVudCBEaXNwYXRjaCIsInB1YmxpYyI6ZmFsc2UsInJlZGlyZWN0X3VybCI6Imh0dHBzOi8vcHJvdmlzaW9uLnZlc3BvbGkubWUvZ2l0aHViL2NhbGxiYWNrIiwidXJsIjoiaHR0cHM6Ly92ZXNwb2xpLm1lIn0=",
+  "manifestDigest": "caf7bc135204435546ffe90e8a38df2c188b5c059befb786c43ca7fd1f557dae",
+  "registrationState": "not_registered",
+  "installationState": "not_installed"
+}
