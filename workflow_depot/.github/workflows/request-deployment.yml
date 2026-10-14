@@ -1,0 +1,40 @@
+name: Request central artifact deployment
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: Registered target in delivery_control deployment/services.json
+        type: string
+        required: true
+      depot_ref:
+        description: Reviewed immutable capability revision
+        type: string
+        required: true
+    secrets:
+      RELEASE_DISPATCH_TOKEN:
+        required: true
+permissions: {}
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {contents: read}
+    steps:
+      - name: Validate main source and immutable capability before checkout
+        env:
+          DEPOT_REF: ${{ inputs.depot_ref }}
+        run: |
+          node --input-type=module <<'JS'
+          if(process.env.GITHUB_EVENT_NAME!=='push'||process.env.GITHUB_REF!=='refs/heads/main'||!/^[a-f0-9]{40}$/.test(process.env.DEPOT_REF||'')) throw Error('Exact main push and pinned capability required');
+          JS
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: susanbeasles/workflow_depot
+          ref: ${{ inputs.depot_ref }}
+          path: .deployment-depot
+          persist-credentials: false
+      - name: Dispatch exact source to central admission
+        run: node .deployment-depot/ci/dispatch-deployment.mjs
+        env:
+          RELEASE_DISPATCH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
+          DEPLOY_TARGET: ${{ inputs.target }}
