@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "matcher": "Bash|Read|Write|Edit|Grep|Glob|WebFetch|WebSearch|mcp__.*",
+        "bash": "python3 \"$(git rev-parse --show-toplevel)/.agent-guard/guard.py\"",
+        "powershell": "python \"$(git rev-parse --show-toplevel)/.agent-guard/guard.py\"",
+        "timeoutSec": 15
+      },
+      {
+        "type": "command",
+        "matcher": "Bash|Read|Write|Edit|Grep|Glob|WebFetch|WebSearch|mcp__.*",
+        "bash": "python3 \"$(git rev-parse --show-toplevel)/.agent-guard/supervisor.py\"",
+        "powershell": "python \"$(git rev-parse --show-toplevel)/.agent-guard/supervisor.py\"",
+        "timeoutSec": 20
+      }
+    ],
+    "PostToolUse": [
+      {
+        "type": "command",
+        "matcher": "Bash|Read|WebFetch|mcp__.*",
+        "bash": "python3 \"$(git rev-parse --show-toplevel)/.agent-guard/guard.py\"",
+        "powershell": "python \"$(git rev-parse --show-toplevel)/.agent-guard/guard.py\"",
+        "timeoutSec": 15
+      },
+      {
+        "type": "command",
+        "matcher": "Write|Edit",
+        "bash": "python3 \"$(git rev-parse --show-toplevel)\"/.guard/hooks/post-edit-check.py",
+        "timeoutSec": 120
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "bash": "python3 \"$(git rev-parse --show-toplevel)\"/.guard/hooks/stop-gate.py",
+        "timeoutSec": 600
+      }
+    ],
+    "SessionStart": [
+      {
+        "type": "command",
+        "bash": "python3 \"$(git rev-parse --show-toplevel)\"/.guard/hooks/session-start.py",
+        "timeoutSec": 5
+      }
+    ]
+  }
+}
