@@ -246,6 +246,19 @@ jobs:
         with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
       - name: Materialize intact security-assurance module
         run: cp -a -- .security-depot/security-assurance/. .security-depot/
+      - if: matrix.scan == 'dast-zap' || matrix.scan == 'api-schemathesis'
+        name: Reject unapproved or public dynamic preview targets
+        env:
+          DAST_TARGET: ${{ inputs.dast_target_url }}
+          DAST_APPROVAL: ${{ inputs.dast_authorization_ref }}
+          API_TARGET: ${{ inputs.api_target_url }}
+          API_APPROVAL: ${{ inputs.api_authorization_ref }}
+        run: |
+          node --input-type=module <<'JS'
+          import {previewTarget} from './.security-depot/ci/preview-guard.mjs';
+          previewTarget(process.env.DAST_TARGET,process.env.DAST_APPROVAL);
+          previewTarget(process.env.API_TARGET,process.env.API_APPROVAL);
+          JS
       - if: inputs.integration_artifact_name != '' && !inputs.admission_only
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -343,6 +356,8 @@ jobs:
         with: { repository: "${{ inputs.depot_repository }}", ref: "${{ inputs.depot_ref }}", path: .security-depot, persist-credentials: false }
       - name: Materialize intact security-assurance module
         run: cp -a -- .security-depot/security-assurance/. .security-depot/
+      - name: Apply owned CodeQL Advanced configuration
+        run: python3 .security-depot/ci/materialize-codeql.py
       - run: |
           echo "POLICY_REVISION=${{ needs.detect.outputs.policy_revision }}" >> "$GITHUB_ENV"
           echo "INPUT_TREE_DIGEST=$(git -C src rev-parse 'HEAD^{tree}')" >> "$GITHUB_ENV"

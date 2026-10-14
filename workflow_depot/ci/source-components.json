@@ -1,0 +1,27 @@
+{
+  "repository": "susanbeasles/repoctl",
+  "commit": "447e4cafe983a4dd68b60632d2c6e3d4c56367e8",
+  "sourcePrefix": "workflow_depot/",
+  "files": [
+    {
+      "path": "src/deployment-evidence.mjs",
+      "sha256": "fb1f9cfcfced25536469f020bfa9430bbc7941b18545b4c55f4bfb3de135a546"
+    },
+    {
+      "path": "src/integration-ref.mjs",
+      "sha256": "2496671a48b955b91422a360491d117255f80ab634dcda33311c9898b32459c2"
+    },
+    {
+      "path": "src/shared/contract.mjs",
+      "sha256": "8991b69e6323327264f29a1837a9336c637589e131053eaf5c2106d47bbdbaa2"
+    },
+    {
+      "path": "src/shared/oidc.mjs",
+      "sha256": "c62e0202640f486899fb341b35c86827054b7739c6ddccb43563b259ad145d36"
+    },
+    {
+      "path": "capabilities/deploy/package-bundle.mjs",
+      "sha256": "960138697dceead96b2bffd4cc93745c0594a01329be1e104c451e2ebfb850c5"
+    }
+  ]
+}
