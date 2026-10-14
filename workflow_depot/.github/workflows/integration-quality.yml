@@ -16,6 +16,19 @@ on:
         description: Reviewed runtime image pinned by sha256 digest
         type: string
         required: true
+      agent_review_enabled:
+        type: boolean
+        default: false
+      agent_review_image:
+        type: string
+        default: ''
+      agent_review_approval_ref:
+        type: string
+        default: ''
+      agent_review_command_json:
+        description: Reviewed argv supplied by the qualified reviewer runtime; writes candidate-bound agent-review.json
+        type: string
+        default: '[]'
       policy_profile:
         description: "ci-baseline | strict"
         type: string
@@ -75,6 +88,9 @@ on:
         description: "Base SHA for the diff the AI reviewer sees (default: PR base or previous commit)"
         type: string
         default: ""
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
 permissions: {}
 jobs:
   identity:
@@ -84,11 +100,19 @@ jobs:
       - env:
           DEPOT_REF: ${{ inputs.depot_ref }}
           BUILD_OUTPUT: ${{ inputs.build_output }}
+          REVIEW_ENABLED: ${{ inputs.agent_review_enabled }}
+          REVIEW_IMAGE: ${{ inputs.agent_review_image }}
+          REVIEW_APPROVAL: ${{ inputs.agent_review_approval_ref }}
+          REVIEW_COMMAND_JSON: ${{ inputs.agent_review_command_json }}
           PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
           RUNNER_IMAGE: ${{ inputs.runner_image }}
         run: |
           python3 - <<'PY'
-          import os,re
+          import os,re,json
+          if os.environ['REVIEW_ENABLED']=='true':
+              assert re.fullmatch(r'[^\s]+@sha256:[a-f0-9]{64}',os.environ['REVIEW_IMAGE'])
+              assert os.environ['REVIEW_APPROVAL'].strip()
+              command=json.loads(os.environ['REVIEW_COMMAND_JSON']);assert isinstance(command,list) and command and all(isinstance(x,str) and x for x in command)
           assert os.environ['PRIVATE_REPOSITORY']=='true', 'Private sourcemaps require private artifact custody'
           assert re.fullmatch(r'[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*',os.environ['BUILD_OUTPUT'])
           assert os.environ['GITHUB_EVENT_NAME']=='push'
@@ -122,6 +146,18 @@ jobs:
           ref: ${{ inputs.depot_ref }}
           path: .quality-depot
           persist-credentials: false
+      - name: Validate explicitly approved isolated preview before dynamic scans
+        env:
+          DAST_TARGET: ${{ inputs.dast_target_url }}
+          DAST_APPROVAL: ${{ inputs.dast_authorization_ref }}
+          API_TARGET: ${{ inputs.api_target_url }}
+          API_APPROVAL: ${{ inputs.api_authorization_ref }}
+        run: |
+          node --input-type=module <<'JS'
+          import {previewTarget} from './.quality-depot/ci/preview-guard.mjs';
+          previewTarget(process.env.DAST_TARGET,process.env.DAST_APPROVAL);
+          previewTarget(process.env.API_TARGET,process.env.API_APPROVAL);
+          JS
       - name: Run required quality checks and the single integration build
         run: node .quality-depot/ci/project-profile.mjs src
       - name: Bind immutable build bytes to integration run
@@ -162,6 +198,37 @@ jobs:
       external_evidence_bundle: ${{ inputs.external_evidence_bundle }}
       ai_review_model: ${{ inputs.ai_review_model }}
       ai_review_base_sha: ${{ inputs.ai_review_base_sha }}
+  agent-review:
+    needs: security
+    if: inputs.agent_review_enabled && needs.security.outputs.decision == 'PASS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions: {contents: read}
+    container:
+      image: ${{ inputs.agent_review_image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {path: src, ref: '${{ github.sha }}', persist-credentials: false, submodules: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ inputs.depot_repository }}
+          ref: ${{ inputs.depot_ref }}
+          path: .review-depot
+          persist-credentials: false
+      - name: Run approved pinned reviewer without deployment authority
+        env:
+          REVIEW_ENABLED: ${{ inputs.agent_review_enabled }}
+          REVIEW_IMAGE: ${{ inputs.agent_review_image }}
+          REVIEW_APPROVAL: ${{ inputs.agent_review_approval_ref }}
+          REVIEW_COMMAND_JSON: ${{ inputs.agent_review_command_json }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node .review-depot/ci/agent-review.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: advisory-agent-review-${{ github.sha }}
+          path: agent-review.json
+          if-no-files-found: error
+          retention-days: 30
   quality-security-checks:
     needs: [admission, quality-build, security]
     if: always()
@@ -175,7 +242,8 @@ jobs:
         run: test "$ADMISSION" = PASS && test "$QUALITY" = success && test "$SECURITY" = PASS
 
   release-materials:
-    needs: [quality-security-checks]
+    needs: [quality-security-checks, agent-review]
+    if: always() && needs.quality-security-checks.result == 'success' && (needs.agent-review.result == 'success' || (!inputs.agent_review_enabled && needs.agent-review.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions: {contents: read, id-token: write}

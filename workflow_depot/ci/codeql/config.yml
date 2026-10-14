@@ -1,0 +1,5 @@
+name: Personal control security policy
+# Retain the default suite and extend it; no path or query exclusions.
+disable-default-queries: false
+queries:
+  - uses: security-extended

@@ -1,0 +1,33 @@
+name: Accepted main artifact and central dispatch
+on:
+  workflow_call:
+    inputs:
+      depot_ref: {type: string, required: true}
+      integration_depot_ref: {type: string, required: true}
+      integration_run_id: {type: string, required: true}
+      promotion_evidence_artifact: {type: string, required: true}
+      worker_artifact_path: {type: string, required: true}
+      target: {type: string, required: true}
+    secrets:
+      RELEASE_DISPATCH_TOKEN: {required: true}
+permissions: {}
+jobs:
+  artifact:
+    permissions: {contents: read, actions: read}
+    uses: ./.github/workflows/accepted-main-artifacts.yml
+    with:
+      depot_ref: ${{ inputs.depot_ref }}
+      integration_depot_ref: ${{ inputs.integration_depot_ref }}
+      integration_run_id: ${{ inputs.integration_run_id }}
+      promotion_evidence_artifact: ${{ inputs.promotion_evidence_artifact }}
+      worker_artifact_path: ${{ inputs.worker_artifact_path }}
+      target: ${{ inputs.target }}
+  dispatch:
+    needs: artifact
+    permissions: {contents: read}
+    uses: ./.github/workflows/request-deployment.yml
+    with:
+      depot_ref: ${{ inputs.depot_ref }}
+      target: ${{ inputs.target }}
+    secrets:
+      RELEASE_DISPATCH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}

@@ -30,6 +30,11 @@ def adapt(original):
   block=segment[at:until].replace('source_path: src',"source_path: \"${{ inputs.integration_artifact_name != '' && !inputs.admission_only && '.integration-build/payload' || 'src' }}\"")
   segment=segment[:at]+block+segment[until:]
  text=text[:start]+segment+text[end:]
+ start=text.index('\n  analyze:');pos=text.index(addition,start)+len(addition)
+ guard="      - if: matrix.scan == 'dast-zap' || matrix.scan == 'api-schemathesis'\n        name: Reject unapproved or public dynamic preview targets\n        env:\n          DAST_TARGET: ${{ inputs.dast_target_url }}\n          DAST_APPROVAL: ${{ inputs.dast_authorization_ref }}\n          API_TARGET: ${{ inputs.api_target_url }}\n          API_APPROVAL: ${{ inputs.api_authorization_ref }}\n        run: |\n          node --input-type=module <<'JS'\n          import {previewTarget} from './.security-depot/ci/preview-guard.mjs';\n          previewTarget(process.env.DAST_TARGET,process.env.DAST_APPROVAL);\n          previewTarget(process.env.API_TARGET,process.env.API_APPROVAL);\n          JS\n"
+ text=text[:pos]+guard+text[pos:]
+ start=text.index('\n  codeql:');pos=text.index(addition,start)+len(addition)
+ text=text[:pos]+'      - name: Apply owned CodeQL Advanced configuration\n        run: python3 .security-depot/ci/materialize-codeql.py\n'+text[pos:]
  return text
 if __name__=='__main__':
  import pathlib

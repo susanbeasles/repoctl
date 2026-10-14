@@ -2,7 +2,7 @@
 
 This import preserves the complete supplied security-assurance v3 module, including its original policies, rules, actions, qualification records and both binary Hypothesis caches. The owner confirms comprehensive testing on creation. The v3 completion matrix is the factual source for coverage; the older coverage/README tables are retained as historical source, not used to declare current gaps. Cache/artifact/archive and binary inspection are implemented. No scanners or gate controls were replaced, disabled or softened.
 
-The root `.github/workflows/security-assurance.yml` is a workflow_call entrypoint. Its only adapter change materializes the unchanged module into the checkout layout expected by the original actions, once per job. No application caller, scheduled scan, root qualification trigger or public DAST target is activated by this import. `security-assurance-import.json` binds every original file to the verified archive; the base64 staging blob is not source.
+The root `.github/workflows/security-assurance.yml` is a workflow_call entrypoint. The root adapter materializes the unchanged module and adds reviewed phase isolation, retained-build verification, private-preview guards and owned CodeQL configuration without changing any of the 76 imported files. No application caller, scheduled scan, root qualification trigger or public DAST target is activated by this import. `security-assurance-import.json` binds every original file to the verified archive; the base64 staging blob is not source.
 
 ## Existing implementation and integration gaps
 
@@ -17,7 +17,7 @@ The root `.github/workflows/security-assurance.yml` is a workflow_call entrypoin
 | Release/deployment | Existing evidence bundle and cosign flow; prepared central dispatch/packager and controller | Draft release, protected app-owned tags, OIDC cosign, checksums and immutable artifact bundle linked to accepted integration evidence; main dispatch consumes these bytes without rebuild. |
 | Signing/promotion/rulesets | Existing canonical repoctl and signer/controller sources | Reconcile private signer availability, app-only main updates, signed tip/integration-squash/release tags and reproducible rulesets. Do not activate or bypass rules during import. |
 
-## Proposed sequence for review
+## Reviewed source implementation sequence
 
 1. Preserve/import this module and verify only layout changes. Review the pinned entrypoint, current policy profile and CodeQL entitlement/profile decision.
 2. Define project profiles and source admission. Source inspection precedes executing project tooling; dependency installation and restored caches are inspected using the existing controls.
@@ -26,4 +26,7 @@ The root `.github/workflows/security-assurance.yml` is a workflow_call entrypoin
 5. Run approved pinned-container agent review, then app-controlled main promotion with race/current-main checks and signed integration evidence. Keep feature tips, signed integration squash and release identity linked.
 6. Prepare the release's checksums, SBOM, private sourcemaps, attestations and bundle; dispatch central deployment from accepted main using the immutable integration artifact. Verify release/deployment receipts, then commission rulesets through a separately reviewed change.
 
-This is a proposed integration design/sequence, not permission to execute the larger rewiring. Terraform's latest PR-plan/main-apply rule does not alter application integration-only validation. Permanent signer custody and bootstrap remain separate; no new secrets, identities, ruleset mutations, paid infrastructure, scans or deployment occurred here.
+The user approved and the source now implements this sequence through reusable adapters described in ci/PIPELINE-WIRING.md. This source implementation is not permission for live commissioning, scans, deployment or main promotion. Terraform's latest PR-plan/main-apply rule does not alter application integration-only validation. Permanent signer custody and bootstrap remain separate; no new secrets, identities, ruleset mutations, paid infrastructure, scans or deployment occurred here.
+
+
+The new ready source PRs implement private-target guards, opt-in pinned review, owned Advanced CodeQL configuration, a retained-evidence main consumer and promotion envelope, no-rebuild main packaging/central dispatch, and the official CLI-only deployment Environment loader. The table above records the original import review; current source and remaining live gates are documented in ci/PIPELINE-WIRING.md.
