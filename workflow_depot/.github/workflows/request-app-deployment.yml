@@ -1,0 +1,54 @@
+name: Request central deployment with existing scoped App
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: Registered target in delivery_control deployment/services.json
+        type: string
+        required: true
+      depot_ref:
+        description: Reviewed immutable capability revision
+        type: string
+        required: true
+      app_id: {type: string, required: true}
+      app_client_id: {type: string, required: true}
+      app_slug: {type: string, required: true}
+      installation_id: {type: string, required: true}
+      private_key_ref: {type: string, required: true}
+      approval_ref: {type: string, required: true}
+      commissioned: {type: boolean, default: false}
+    secrets:
+      OP_SERVICE_ACCOUNT_TOKEN:
+        required: false
+permissions: {}
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {contents: read}
+    steps:
+      - name: Validate main source and immutable capability before checkout
+        env:
+          DEPOT_REF: ${{ inputs.depot_ref }}
+        run: |
+          node --input-type=module <<'JS'
+          if(process.env.GITHUB_EVENT_NAME!=='push'||process.env.GITHUB_REF!=='refs/heads/main'||!/^[a-f0-9]{40}$/.test(process.env.DEPOT_REF||'')) throw Error('Exact main push and pinned capability required');
+          JS
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: susanbeasles/workflow_depot
+          ref: ${{ inputs.depot_ref }}
+          path: .deployment-depot
+          persist-credentials: false
+      - name: Dispatch exact source to central admission
+        run: node .deployment-depot/ci/app-dispatch.mjs
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          DISPATCH_APP_ID: ${{ inputs.app_id }}
+          DISPATCH_APP_CLIENT_ID: ${{ inputs.app_client_id }}
+          DISPATCH_APP_SLUG: ${{ inputs.app_slug }}
+          DISPATCH_INSTALLATION_ID: ${{ inputs.installation_id }}
+          DISPATCH_APP_PRIVATE_KEY_REF: ${{ inputs.private_key_ref }}
+          DISPATCH_APP_APPROVAL_REF: ${{ inputs.approval_ref }}
+          DISPATCH_APP_COMMISSIONED: ${{ inputs.commissioned }}
+          DEPLOY_TARGET: ${{ inputs.target }}
