@@ -1,0 +1,70 @@
+name: Agent protections
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: agent-guard-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Validate guard configuration and behavior
+        run: |
+          python3 - <<'PY'
+          import ast, json, pathlib, tomllib
+          for name in ['.agent-guard/guard.py', '.agent-guard/supervisor.py', '.guard/hooks/session-start.py', '.guard/hooks/post-edit-check.py', '.guard/hooks/stop-gate.py']:
+              ast.parse(pathlib.Path(name).read_text(), filename=name)
+          for name in ['.agent-guard/policy.json', '.agent-guard/patterns.json', '.claude/settings.json', '.codex/hooks.json', '.github/hooks/agent-guard.json']:
+              json.loads(pathlib.Path(name).read_text())
+          tomllib.loads(pathlib.Path('.codex/config.toml').read_text())
+          print('Guard syntax and configuration valid')
+          PY
+          node --test .guard/tests/guard.ts
+      - name: Scan changed content for hidden Unicode markers
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess, sys
+          base = os.environ.get('BASE_SHA', '')
+          if not base or set(base) == {'0'}:
+              print('No comparison base; behavioral validation still ran')
+              sys.exit(0)
+          paths = subprocess.check_output(['git', 'diff', '--name-only', '-z', '--diff-filter=AM', base, 'HEAD']).decode().split('\0')
+          patterns = json.loads(pathlib.Path('.agent-guard/patterns.json').read_text())['patterns']
+          compiled = [(p['id'], re.compile(p['rx'], re.I | (re.M if 'm' in p.get('flags', '') else 0) | (re.S if 's' in p.get('flags', '') else 0))) for p in patterns if p['id'] in ('enc-zw', 'enc-bidi', 'enc-tag')]
+          failed = False
+          for name in paths:
+              if not name or name.startswith(('.agent-guard/', '.guard/', 'packs/agent-guard/', 'docs/agent-guard/', 'docs/handoff/')):
+                  continue  # The guard corpus and its documented examples are expected to contain markers.
+              path = pathlib.Path(name)
+              if path.is_symlink() or not path.is_file():
+                  continue
+              raw = path.read_bytes()
+              if b'\0' in raw:
+                  continue
+              text = raw.decode('utf8', errors='replace')
+              for identifier, pattern in compiled:
+                  if pattern.search(text):
+                      print(f'Injection marker {identifier} in {name}'); failed = True
+          sys.exit(1 if failed else 0)
+          PY
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false

@@ -1,0 +1,11 @@
+# Agent protection ownership
+/.agent-guard/   @susanbeasles
+/.guard/         @susanbeasles
+/.claude/        @susanbeasles
+/.codex/         @susanbeasles
+/.cursor/        @susanbeasles
+/.github/        @susanbeasles
+/AGENTS.md       @susanbeasles
+/CLAUDE.md       @susanbeasles
+/CODEOWNERS @susanbeasles
+/.github/CODEOWNERS @susanbeasles
