@@ -1,0 +1,17 @@
+# agent-guard: project-scoped Codex config. Loads only when the project is trusted.
+# Codex has no deny-list for tools; the sandbox and the hooks are the controls.
+
+approval_policy = "on-request"      # never "never": a denied hook + on-request keeps a human in the loop
+web_search = "disabled"
+sandbox_mode = "workspace-write"     # never "danger-full-access"
+
+[sandbox_workspace_write]
+network_access = false               # no egress from the agent's shell
+writable_roots = []                  # only the workspace; nothing under $HOME
+
+[features]
+hooks = true
+
+
+# Guard files are read-only to the agent by policy (guard.py protected_write_paths),
+# and the git hooks refuse history rewrites regardless of what the agent attempts.

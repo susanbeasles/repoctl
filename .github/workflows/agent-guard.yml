@@ -1,0 +1,82 @@
+name: Agent protections
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent-guard-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Validate guard configuration and behavior
+        run: |
+          python3 - <<'PY'
+          import ast, json, pathlib, tomllib
+          for name in ['.agent-guard/guard.py', '.agent-guard/supervisor.py', '.guard/hooks/session-start.py', '.guard/hooks/post-edit-check.py', '.guard/hooks/stop-gate.py']:
+              ast.parse(pathlib.Path(name).read_text(), filename=name)
+          for name in ['.agent-guard/policy.json', '.agent-guard/patterns.json', '.claude/settings.json', '.codex/hooks.json', '.github/hooks/agent-guard.json']:
+              json.loads(pathlib.Path(name).read_text())
+          tomllib.loads(pathlib.Path('.codex/config.toml').read_text())
+          print('Guard syntax and configuration valid')
+          PY
+          node --test .guard/tests/guard.ts
+      - name: Scan changed content for hidden Unicode markers
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess, sys
+          base = os.environ.get('BASE_SHA', '')
+          if not base or set(base) == {'0'}:
+              print('No comparison base; behavioral validation still ran')
+              sys.exit(0)
+          paths = subprocess.check_output(['git', 'diff', '--name-only', '-z', '--diff-filter=AM', base, 'HEAD']).decode().split('\0')
+          patterns = json.loads(pathlib.Path('.agent-guard/patterns.json').read_text())['patterns']
+          compiled = [(p['id'], re.compile(p['rx'], re.I | (re.M if 'm' in p.get('flags', '') else 0) | (re.S if 's' in p.get('flags', '') else 0))) for p in patterns if p['id'] in ('enc-zw', 'enc-bidi', 'enc-tag')]
+          failed = False
+          for name in paths:
+              if not name or name.startswith(('.agent-guard/', '.guard/', 'packs/agent-guard/', 'docs/agent-guard/', 'docs/handoff/')):
+                  continue  # The guard corpus and its documented examples are expected to contain markers.
+              path = pathlib.Path(name)
+              if path.is_symlink() or not path.is_file():
+                  continue
+              raw = path.read_bytes()
+              if b'\0' in raw:
+                  continue
+              text = raw.decode('utf8', errors='replace')
+              for identifier, pattern in compiled:
+                  if pattern.search(text):
+                      print(f'Injection marker {identifier} in {name}'); failed = True
+          sys.exit(1 if failed else 0)
+          PY
+      - name: Scan for secrets
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          scan_dir="$(mktemp -d)"
+          trap 'rm -rf "$scan_dir"' EXIT
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz \
+            --output "$scan_dir/gitleaks.tar.gz"
+          printf '%s  %s\n' 9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c "$scan_dir/gitleaks.tar.gz" | sha256sum --check -
+          tar -xzf "$scan_dir/gitleaks.tar.gz" -C "$scan_dir" gitleaks
+          args=(git --redact --no-banner --exit-code 1)
+          if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != 0000000000000000000000000000000000000000 ]; then
+            args+=("--log-opts=$BASE_SHA..HEAD")
+          fi
+          "$scan_dir/gitleaks" "${args[@]}"

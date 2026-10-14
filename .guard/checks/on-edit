@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Fast per-file checks after every agent edit. Keep under ~10s. Missing tools print SKIP, never PASS.
+set -uo pipefail
+FILE="$1"; have() { command -v "$1" >/dev/null 2>&1; }; rc=0
+skip() { echo "SKIP $1 (not installed)"; }
+case "$FILE" in
+  *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs)
+    if [[ -f package.json ]]; then
+      if have npx; then npx --no-install eslint --max-warnings=0 "$FILE" || rc=1; else skip eslint; fi
+      case "$FILE" in *.ts|*.tsx) if [[ -f tsconfig.json ]]; then have npx && { npx --no-install tsc --noEmit -p tsconfig.json || rc=1; } || skip tsc; fi;; esac
+    fi ;;
+  *.py)  if have ruff; then ruff check "$FILE" || rc=1; ruff format --check "$FILE" || rc=1; else skip ruff; fi
+         python3 -m py_compile "$FILE" || rc=1 ;;
+  *.swift) if have swiftlint; then swiftlint lint --quiet "$FILE" || rc=1; else skip swiftlint; fi ;;
+  *.tf|*.tfvars) if have terraform; then terraform fmt -check -diff "$FILE" || rc=1; else skip terraform; fi ;;
+  *.sh|*.bash) if have shellcheck; then shellcheck -S warning "$FILE" || rc=1; else skip shellcheck; fi; bash -n "$FILE" || rc=1 ;;
+  *.json) python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$FILE" || rc=1 ;;
+  *.yml|*.yaml) if have yamllint; then yamllint -d relaxed "$FILE" || rc=1; else python3 -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "$FILE" 2>/dev/null || skip yaml-parse; fi ;;
+  *.toml) python3 -c "import sys,tomllib; tomllib.load(open(sys.argv[1],'rb'))" "$FILE" || rc=1 ;;
+esac
+if have gitleaks; then gitleaks detect --no-git --source "$FILE" --no-banner --redact >/dev/null 2>&1 || { echo "gitleaks: possible secret in $FILE"; rc=1; }; else skip gitleaks; fi
+exit $rc

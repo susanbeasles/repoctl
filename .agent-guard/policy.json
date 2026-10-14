@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "quarantine_paths": [
+    "node_modules/**",
+    "vendor/**",
+    "third_party/**",
+    ".build/**",
+    ".terraform/**",
+    "dist/**",
+    "build/**",
+    "target/**",
+    "fixtures/**",
+    "testdata/**",
+    "**/*.min.js",
+    "**/*.lock",
+    "**/*.ndjson",
+    "**/*.jsonl",
+    ".git/**",
+    "**/*.pdf",
+    "**/*.docx",
+    "**/*.png",
+    "**/*.jpg",
+    "**/*.jpeg",
+    "**/*.gif",
+    "**/*.webp"
+  ],
+  "quarantine_exempt": [
+    "docs/**/*.png",
+    "docs/**/*.jpg"
+  ],
+  "secret_paths": [
+    "~/.ssh/**",
+    "~/.gnupg/**",
+    "~/.config/git/**",
+    "~/.aws/**",
+    "~/.netrc",
+    "~/.npmrc",
+    "~/.pypirc",
+    "~/Library/Keychains/**",
+    "**/.env",
+    "**/.env.*",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.p12",
+    "**/*credentials*.json",
+    "**/*service-account*.json"
+  ],
+  "protected_write_paths": [
+    ".agent-guard/**",
+    ".claude/**",
+    ".cursor/**",
+    ".codex/**",
+    ".github/hooks/**",
+    ".github/workflows/**",
+    ".github/copilot/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".github/copilot-instructions.md",
+    "CODEOWNERS",
+    ".github/CODEOWNERS",
+    ".guard/**"
+  ],
+  "allowed_fetch_domains": [],
+  "allowed_mcp_servers": [],
+  "scan_bytes_max": 2097152,
+  "unlock_ttl_seconds": 3600,
+  "log_path": "~/.agent-guard/log.ndjson",
+  "supervisor": {
+    "task": "",
+    "scope_paths": [],
+    "allow_push": true,
+    "allow_signatures": [],
+    "model": {
+      "enabled": false,
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "model": "",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "timeout": 8
+    }
+  }
+}
