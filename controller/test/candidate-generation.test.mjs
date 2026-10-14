@@ -1,5 +1,18 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {integrationGeneration} from '../src/candidate/generation.mjs';
 const sha=c=>c.repeat(40),intent={generationID:'e'.repeat(64),baseSHA:sha('a'),commitSHA:sha('b'),treeSHA:sha('c')};
+test('caller cancellation stops late proof from entering publication and aborts installed capability',async()=>{
+ const f=fixture(),control=new AbortController();let finish,entered,signal;
+ const ready=new Promise(resolve=>{entered=resolve;});
+ const api=integrationGeneration({...f.config,verifyCandidate:(binding,context)=>{signal=context.signal;entered();return new Promise(resolve=>{finish=()=>resolve({...binding,verified:true});});}});
+ const pending=api.publish(intent,{signal:control.signal});await ready;control.abort();finish();
+ await assert.rejects(pending);assert.equal(signal.aborted,true);assert.equal(f.writes(),0);assert.equal(f.journal.size,0);
+});
+test('cancellation after retained creation claim cannot call native upload',async()=>{
+ const f=fixture(),control=new AbortController();let uploads=0;
+ const api=integrationGeneration({...f.config,records:{...f.config.records,transition:async(...args)=>{const result=await f.config.records.transition(...args);if(args[2]==='creating')control.abort();return result;}},publication:{create:async()=>{uploads++;throw Error('Must not upload');}}});
+ await assert.rejects(api.publish(intent,{signal:control.signal}),/uncertain/);
+ assert.equal(uploads,0);assert.equal(f.writes(),0);assert.equal(f.journal.get(intent.generationID).phase,'uncertain');
+});
 function fixture(){let writes=0,ref=null;const journal=new Map(),state={lost:false,lostAbsent:false,foreign:false,immutable:true,moved:false,wrongCommit:false};
  const records={async reserve(b){if(journal.has(b.generationID))return false;journal.set(b.generationID,{...b,phase:'reserved'});return true;},async read(id){return journal.get(id);},async transition(id,from,to){const r=journal.get(id);if(r?.phase!==from)return false;r.phase=to;return true;}};
  const fetcher=async(url,options)=>{assert.equal(new URL(url).origin,'https://api.github.com');assert.equal(options.redirect,'manual');const path=new URL(url).pathname.replace('/repos/owner/fixture','');
@@ -10,6 +23,25 @@ function fixture(){let writes=0,ref=null;const journal=new Map(),state={lost:fal
   if(path==='/git/ref/heads/int/'+intent.generationID)return ref?Response.json(ref):new Response('',{status:404});throw Error('Unexpected path');};
  const config={repository:'owner/fixture',repositoryID:7,token:async()=> 'fixture-secret',records,verifyCandidate:async b=>({...b,verified:true}),verifyNamespace:async b=>({...b,verified:true,immutable:state.immutable}),fetcher};return {config,api:integrationGeneration(config),state,journal,writes:()=>writes,setRef:r=>ref=r};}
 test('integration generation creates once, verifies exact signed child and readback, resumes without ref updates',async()=>{const f=fixture();const first=await f.api.publish(intent);assert.equal(first.published,true);assert.equal(f.writes(),1);assert.deepEqual(await f.api.publish(intent),first);assert.equal(f.writes(),1);});
+test('explicit generation reconciliation cannot reserve or publish a missing operation',async()=>{
+ const f=fixture();
+ await assert.rejects(f.api.reconcile(intent), /Unknown retained generation/);
+ assert.equal(f.journal.size,0);assert.equal(f.writes(),0);
+ f.state.lost=true;await assert.rejects(f.api.publish(intent),/uncertain/);
+ const before=f.writes();
+ const noWrites=integrationGeneration({...f.config,records:{...f.config.records,reserve:async()=>{throw Error('Reconciliation must not reserve');}},publication:{create:async()=>{throw Error('Reconciliation must not upload');}}});
+ assert.equal((await noWrites.reconcile(intent)).published,true);assert.equal(f.writes(),before);
+ assert.equal(f.journal.get(intent.generationID).phase,'confirmed');
+});
+test('explicit reconciliation preserves absent, reserved and foreign outcomes without remote mutations',async()=>{
+ const f=fixture();f.state.lostAbsent=true;
+ await assert.rejects(f.api.publish(intent),/uncertain/);
+ await assert.rejects(f.api.reconcile(intent),/unresolved/);assert.equal(f.writes(),1);
+ const reserved=fixture();await reserved.config.records.reserve({repositoryID:7,ref:'refs/heads/int/'+intent.generationID,...intent});
+ await assert.rejects(reserved.api.reconcile(intent),/unresolved/);assert.equal(reserved.writes(),0);
+ reserved.setRef({ref:'refs/heads/int/'+intent.generationID,object:{type:'commit',sha:intent.commitSHA}});
+ await assert.rejects(reserved.api.reconcile(intent),/collision/);assert.equal(reserved.writes(),0);
+});
 test('lost create response reconciles matching retained operation without another mutation',async()=>{const f=fixture();f.state.lost=true;await assert.rejects(f.api.publish(intent),error=>error.message.includes('uncertain')&&!error.message.includes('SECRET-PROVIDER-MARKER'));assert.equal(f.journal.get(intent.generationID).phase,'uncertain');assert.equal((await f.api.publish(intent)).published,true);assert.equal(f.writes(),1);});
 test('foreign identity, moving base, unverified commit or mutable namespace cannot create',async()=>{for(const key of ['foreign','moved','wrongCommit']){const f=fixture();f.state[key]=true;await assert.rejects(f.api.publish(intent));assert.equal(f.writes(),0);}const f=fixture();f.state.immutable=false;await assert.rejects(f.api.publish(intent));assert.equal(f.writes(),0);});
 test('existing generation without retained provenance is never adopted, replaced or deleted',async()=>{const f=fixture();f.setRef({ref:'refs/heads/int/'+intent.generationID,object:{type:'commit',sha:intent.commitSHA}});await assert.rejects(f.api.publish(intent),/already exists/);await assert.rejects(f.api.publish(intent),/collision/);assert.equal(f.writes(),0);});

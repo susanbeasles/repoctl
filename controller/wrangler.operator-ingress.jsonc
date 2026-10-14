@@ -1,0 +1,1 @@
+{"name":"repoctl-operator-ingress","main":"src/operator/ingress.ts","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"OPERATOR_INGRESS_ENABLED":"false"}}

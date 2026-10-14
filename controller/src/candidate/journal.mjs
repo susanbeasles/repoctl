@@ -7,7 +7,7 @@ export function generationJournal(storage,repositoryID){
  if(!Number.isSafeInteger(repositoryID)||repositoryID<1||!['get','transaction'].every(k=>typeof storage?.[k]==='function'))throw Error('Invalid generation journal configuration');
  const key=id=>{if(typeof id!=='string'||!hash.test(id))throw Error('Invalid generation reference');return `candidate-generation:v1:${repositoryID}:${id}`;};
  function binding(b){
-  if(!b||Object.getPrototypeOf(b)!==Object.prototype||Object.keys(b).sort().join()!==fields.slice().sort().join()||b.repositoryID!==repositoryID||!hash.test(b.generationID??'')||b.ref!=='refs/heads/int/'+b.generationID||![b.baseSHA,b.commitSHA,b.treeSHA].every(v=>sha.test(v??'')))throw Error('Invalid generation binding');return {...b};
+  if(!b||Object.getPrototypeOf(b)!==Object.prototype||Object.keys(b).sort().join()!==fields.slice().sort().join()||b.repositoryID!==repositoryID||(typeof b.generationID!=='string'||!hash.test(b.generationID))||b.ref!=='refs/heads/int/'+b.generationID||![b.baseSHA,b.commitSHA,b.treeSHA].every(v=>typeof v==='string'&&sha.test(v)&&v!=='0'.repeat(40)))throw Error('Invalid generation binding');return {...b};
  }
  function retained(r,id){if(!r)return null;const {phase,...b}=r;binding(b);if(b.generationID!==id||!phases.includes(phase))throw Error('Invalid retained generation');return {...r};}
  return {

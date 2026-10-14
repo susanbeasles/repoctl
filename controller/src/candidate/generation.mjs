@@ -5,22 +5,27 @@ const sha=/^[a-f0-9]{40}$/,hash=/^[a-f0-9]{64}$/;
 export function integrationGeneration({repository,repositoryID,branch='main',token,records,verifyNamespace,verifyCandidate,publication,fetcher=fetch,timeoutMS=10000}){
  if(!Number.isSafeInteger(timeoutMS)||timeoutMS<100||timeoutMS>10000||!/^[-A-Za-z0-9_.]+\/[-A-Za-z0-9_.]+$/.test(repository??'')||!Number.isSafeInteger(repositoryID)||repositoryID<1||!['main','master'].includes(branch)||typeof token!=='function'||typeof verifyNamespace!=='function'||typeof verifyCandidate!=='function'||(publication!==undefined&&typeof publication?.create!=='function')||!['reserve','read','transition'].every(k=>typeof records?.[k]==='function'))throw Error('Invalid integration generation configuration');
  const root=`https://api.github.com/repos/${repository}`;
- async function bounded(fn){
+ async function capability(fn,external){
   const controller=new AbortController();let timer;
-  try{return await Promise.race([Promise.resolve().then(()=>fn(controller.signal)),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Integration capability timeout'));},timeoutMS);})]);}finally{clearTimeout(timer);}
+  const abort=()=>controller.abort();external?.addEventListener('abort',abort,{once:true});if(external?.aborted)controller.abort();
+  try{controller.signal.throwIfAborted();const result=await Promise.race([Promise.resolve().then(()=>{controller.signal.throwIfAborted();return fn(controller.signal);}),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Integration capability timeout'));},timeoutMS);})]);controller.signal.throwIfAborted();return result;}finally{clearTimeout(timer);external?.removeEventListener('abort',abort);controller.abort();}
  }
- async function request(path,body,absent=false){
-  try{return await bounded(async signal=>{
+ async function providerRequest(path,body,absent=false,external){
+  try{return await capability(async signal=>{
   const credential=await token({signal});signal.throwIfAborted();if(typeof credential!=='string'||!credential||credential.length>16000||/[\r\n]/.test(credential))throw Error('Invalid integration credential');
   const response=await fetcher(root+path,{method:body?'POST':'GET',redirect:'manual',signal,headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${credential}`,'Content-Type':'application/json','User-Agent':'repoctl-integration-generation','X-GitHub-Api-Version':'2026-03-10'},...(body?{body:JSON.stringify(body)}:{})});
   if(absent&&response.status===404)return null;if(!response.ok)throw Error('GitHub integration observation/mutation failed');
   const reader=response.body?.getReader();if(!reader)throw Error('Empty GitHub integration response');let size=0;const chunks=[];
   while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>65536){await reader.cancel();throw Error('Oversized GitHub integration response');}chunks.push(value);}
   const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
-  });}catch{throw Error('GitHub integration request failed or timed out');}
+  },external);}catch{throw Error('GitHub integration request failed or timed out');}
  }
- async function identity(){const r=await request('');if(r.id!==repositoryID||r.full_name?.toLowerCase()!==repository.toLowerCase()||r.fork!==false||r.archived!==false)throw Error('Integration repository identity changed');}
- return {async publish(intent){
+ async function observe(intent,create,context={}){
+  const external=context.signal;
+  const bounded=fn=>capability(fn,external);
+  const request=(path,body,absent=false)=>providerRequest(path,body,absent,external);
+  async function identity(){const r=await request('');if(r.id!==repositoryID||r.full_name?.toLowerCase()!==repository.toLowerCase()||r.fork!==false||r.archived!==false)throw Error('Integration repository identity changed');}
+  external?.throwIfAborted();
   if(!intent||Object.getPrototypeOf(intent)!==Object.prototype||Object.keys(intent).sort().join()!==['generationID','baseSHA','commitSHA','treeSHA'].sort().join())throw Error('Invalid integration generation intent');
   // Validate one private snapshot. Caller edits during awaited capabilities must
   // never change the objects checked, durable reservation or eventual ref write.
@@ -41,7 +46,13 @@ export function integrationGeneration({repository,repositoryID,branch='main',tok
   }
   const target='/git/ref/heads/int/'+intent.generationID;
   const matches=r=>r?.ref===ref&&r.object?.type==='commit'&&r.object.sha===intent.commitSHA;
-  await validate();if(!publication)await remoteCandidate();const created=await records.reserve(binding),record=await records.read(intent.generationID);
+  let created=false,record;
+  if(!create){
+   record=await records.read(intent.generationID);
+   if(!record)throw Error('Unknown retained generation; reconciliation cannot create');
+  }
+  await validate();if(!publication)await remoteCandidate();
+  if(create){created=await records.reserve(binding);record=await records.read(intent.generationID);}
   if(typeof created!=='boolean')throw Error('Invalid generation reservation result');
   if(!record||Object.entries(binding).some(([k,v])=>record[k]!==v)||!['reserved','creating','uncertain','confirmed'].includes(record.phase))throw Error('Generation journal binding differs');
   const existing=await request(target,undefined,true);
@@ -60,5 +71,6 @@ export function integrationGeneration({repository,repositoryID,branch='main',tok
   const phase=current.phase;
   if(phase!=='confirmed'&&await records.transition(intent.generationID,phase,'confirmed')!==true)throw Error('Generation confirmation not retained');
   return {protocol:'repoctl-integration-generation-v1',...binding,published:true};
- }};
+ }
+ return {publish:(intent,context)=>observe(intent,true,context),reconcile:(intent,context)=>observe(intent,false,context)};
 }

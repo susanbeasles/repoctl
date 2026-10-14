@@ -6,9 +6,12 @@ const links={
  receipts:{RECEIPT_AUTHORITY:['authority','AuthorizationService'],RECEIPT_COMPLETION:['observation','CompletionObservationService'],RECEIPT_CHECKPOINT:['checkpoint','CheckpointService']},
  checkpoint:{CHECKPOINT_COMPLETION:['observation','CompletionObservationService']},
  upload:{RECOVERY_PUBLISHER:['archive','RecoveryPublicationService']},
- signer:{APP_ENROLLMENT_APPROVAL:['enrollment','EnrollmentApprovalService']}
+ signer:{APP_ENROLLMENT_APPROVAL:['enrollment','EnrollmentApprovalService']},
+ registration:{APP_ENROLLMENT:['signer','AppEnrollmentService'],APP_ENROLLMENT_APPROVAL:['enrollment','EnrollmentApprovalService']},
+ operator:{OPERATOR_APPROVAL:['enrollment','EnrollmentApprovalService'],OPERATOR_REGISTRATION:['registration','RegistrationControlService']},
+ 'operator-ingress':{OPERATOR_SERVICE:['operator','OperatorService']}
 };
-export const configFiles={controller:'wrangler.jsonc',authority:'wrangler.authority.jsonc',evidence:'wrangler.evidence.jsonc',observation:'wrangler.observation.jsonc',receipts:'wrangler.receipts.jsonc',checkpoint:'wrangler.checkpoint.jsonc',archive:'wrangler.archive-evidence.jsonc',upload:'wrangler.recovery-upload.jsonc',signer:'wrangler.signer.jsonc',policy:'wrangler.policy.jsonc',enrollment:'wrangler.enrollment-approval.jsonc'};
+export const configFiles={controller:'wrangler.jsonc',authority:'wrangler.authority.jsonc',evidence:'wrangler.evidence.jsonc',observation:'wrangler.observation.jsonc',receipts:'wrangler.receipts.jsonc',checkpoint:'wrangler.checkpoint.jsonc',archive:'wrangler.archive-evidence.jsonc',upload:'wrangler.recovery-upload.jsonc',signer:'wrangler.signer.jsonc',policy:'wrangler.policy.jsonc',enrollment:'wrangler.enrollment-approval.jsonc',registration:'wrangler.registration.jsonc',operator:'wrangler.operator.jsonc','operator-ingress':'wrangler.operator-ingress.jsonc'};
 export function deploymentTopology(templates,{prefix,receiptBucket,recoveryBucket}){
  const name=x=>typeof x==='string'&&/^[a-z][a-z0-9-]{2,50}$/.test(x);
  if(!name(prefix)||!name(receiptBucket)||!name(recoveryBucket)||receiptBucket===recoveryBucket)throw Error('Invalid deployment namespace or separate buckets');
@@ -21,5 +24,5 @@ export function deploymentTopology(templates,{prefix,receiptBucket,recoveryBucke
   if(role==='archive')c.r2_buckets=[{binding:'RECOVERY_REPORTS',bucket_name:recoveryBucket}];
   configurations[role]=c;
  }
- return {protocol:'repoctl-deployment-topology-v1',activated:false,configurations,unresolved:['Hardware provenance/revocation verifier and enrollment trust service','Reviewed policy, workflow, repository and archive inventories','Remote wrapping keys, receipt signer and App enrollment','Bucket retention and independent checkpoint witness','Authenticated operator provisioning and live qualification']};
+ return {protocol:'repoctl-deployment-topology-v1',activated:false,configurations,unresolved:['Hardware provenance/revocation verifier and enrollment trust service','Reviewed policy, workflow, repository and archive inventories','Remote wrapping keys, receipt signer and App enrollment','Bucket retention and independent checkpoint witness','Access session revocation verifier, fixed owner subject/issuer/audience and protected operator route','Isolated remote registration origin and owner configuration','Authenticated operator provisioning and live qualification']};
 }

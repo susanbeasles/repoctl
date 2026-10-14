@@ -30,6 +30,15 @@ an absent/moved ref cannot trigger another POST. No existing ref is adopted,
 updated or deleted. Final identity/base/namespace/ref/journal readback precedes
 retained confirmation and the publication report.
 
+`reconcile(intent)` is now an explicit recovery API. It requires a retained
+generation before provider observation, never calls journal reserve or upload/ref
+creation, and accepts only matching creating/uncertain/confirmed provenance.
+Unknown, merely reserved, absent or moved generations cannot be adopted or
+recreated. A matching uncertain outcome may advance its retained journal to
+confirmed after the same fresh identity/base/namespace/signature checks.
+This reconciles publication only; workflow validation, owner/validator approvals,
+operation admission and promotion remain separate required stages.
+
 Native fetch responses are bounded to 64KiB. Credential acquisition, network/body
 reads and namespace verification have at most ten-second deadlines/abort signals.
 Exceptions from credential/network/verifier capabilities suppress provider text.

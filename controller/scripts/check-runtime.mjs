@@ -17,7 +17,7 @@ async function run(args){
   process.once('exit',(code,signal)=>{clearTimeout(timeout);clearTimeout(force);code===0?accept():reject(Error(`Runtime check failed (${signal??code}): ${args[0]}`));});
  });
 }
-const configs=['authority','checkpoint','enrollment-approval','evidence','observation','policy','receipts','registration','signer','broker'];
+const configs=['authority','checkpoint','enrollment-approval','evidence','observation','policy','receipts','registration','signer','operator','operator-ingress','broker'];
 const bundles=new Map();
 try{
  for(const role of configs){
@@ -30,10 +30,10 @@ try{
  const checks=[['app-vault'],['authority','authority'],['broker'],['checkpoint','checkpoint'],
   ['completion','observation','broker'],['enrollment-approval','enrollment-approval'],
   ['enrollment','signer'],['evidence','evidence'],['policy','policy'],
-  ['receipts','receipts','checkpoint'],['registration','registration'],['signer','signer'],['generation']];
+  ['receipts','receipts','checkpoint'],['registration','registration'],['signer','signer'],['operator','operator','operator-ingress'],['generation'],['submission']];
  for(const [name,...roles] of checks){
   console.log(`QUALIFY ${name}`);
-  await run([`scripts/qualify-${name}-local.mjs`,...roles.map(role=>bundles.get(role))]);
+  await run([`scripts/qualify-${name}-local.${['operator','submission'].includes(name)?'ts':'mjs'}`,...roles.map(role=>bundles.get(role))]);
  }
  console.log(JSON.stringify({status:'passed',deploymentBundles:configs.length,workerdQualifications:checks.length,providerVerification:'not-performed'}));
 }finally{await rm(temporary,{recursive:true,force:true});}

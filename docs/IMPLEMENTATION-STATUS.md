@@ -137,4 +137,49 @@ Encrypted App credential adapter added with staged activation, fixed JWT signing
 
 ## Repeatable native runtime qualification (October 7, 2026)
 
-`cd controller && npm run check:runtime` now builds the ten checked-in service configurations and executes all twelve existing local workerd qualifiers. The observed Mac run passed actual SQLite transactions/replay alarms, private RPC isolation, policy revocation, staged enrollment restart recovery, R2 checkpoints and signed receipt recovery after lost responses. Provider responses and hardware attestations remain synthetic test adapters. These results do not qualify production enrollment, remote custody hardware guarantees or the still-unimplemented everyday CLI. The runner isolates its home/credentials, never deploys, stops on failure and removes only its own temporary files.
+`cd controller && npm run check:runtime` now builds the ten checked-in service configurations and executes all thirteen local workerd qualifiers. The observed Mac run passed actual SQLite transactions/replay alarms, private RPC isolation, policy revocation, staged enrollment restart recovery, R2 checkpoints and signed receipt recovery after lost responses. Provider responses and hardware attestations remain synthetic test adapters. These results do not qualify production enrollment, remote custody hardware guarantees or the unfinished authenticated init/submit and controller-evidence CLI paths. The runner isolates its home/credentials, never deploys, stops on failure and removes only its own temporary files.
+
+
+## Published source checkpoint after signed generation transport
+
+Published revision `92084b15b0ac3eaae1a04b40c25a2abef61bd91c` has
+170 passing controller tests and strict TypeScript checks. The latest complete
+runtime qualification passed ten dry-run bundles and thirteen actual local
+workerd qualifiers. Counts in earlier increment entries describe their historical
+patches, not the current suite.
+
+Native `status` and `doctor` are implemented for read-only provider observation
+and comparison with an enrolled configuration baseline. Actions, protection and
+repository reconciliation commands also exist. Their observations do not establish
+independent controller evidence or effective provider enforcement. Native `init`
+and `submit` remain absent from command dispatch; they are required deliverables,
+not external-access blockers that excuse missing implementation.
+
+Candidate preparation snapshots caller intent before asynchronous work. A fixed
+signed-object store packs designated candidate history; a create-only native Git
+receive-pack wire and bounded GitHub smart-HTTP adapter share the durable generation
+journal. Actual local Git fixtures verify signed object transfer and rejection of
+existing generations. Installed credential issuance, cleanup reconciliation and
+provider HTTP are still synthetic in qualification, so this is not a live upload
+claim.
+
+Admission and pre-issuance authorization require an installed accepted-baseline
+verifier. The configuration observer compares complete remote inventories twice
+and checks the final identity/tip, returning observation evidence without claiming
+accepted authority. Its provider responses are synthetic. Accepted baseline trust,
+hardware enrollment and effective-enforcement qualification remain required.
+
+The executor obtains fresh OIDC confirmation immediately before its sole
+fast-forward PATCH; the controller rechecks retained lease, authority, policy,
+baseline and candidate without minting another credential. Denial still allows
+cleanup and completion reconciliation. Provider restrictions must address races
+outside that final observation; no atomic policy/ref transaction is claimed.
+
+Next implementation work is authenticated native init/submit and controller status,
+with existing remote custody, enrollment and reconciliation contracts. Production
+rollout remains disabled until the installed trust services and disposable live
+positive/adversarial flows are commissioned and verified.
+
+## Unpublished operator ingress checkpoint
+
+Native app status/reconcile now uses cached-session acquisition and the bounded HTTPS transport. A disabled public ingress relay reaches the private OperatorService, independently verifying JWT identity, session revocation and retained enrollment approval. Current local checks pass183 controller tests, strict TypeScript,12 dry-run bundles and14 workerd qualifiers. Live Access/session/approval/registration adapters and ingress installation remain unqualified. Native init/submit implementation is still required. These changes remain staged and unpublished after the recorded hardware signing timeout.

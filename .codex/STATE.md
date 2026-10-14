@@ -124,3 +124,43 @@ schema, complete twice-read controls/inherited inventories and final identity/ti
 readback. Only configurationVerified report, explicitly rejected by authorization
 gate alone; enrolled trust/effective-enforcement authority remains unfinished.
 Strict check and170/170 tests pass; /private/tmp/repoctl-baseline-observer-tests.log.
+
+
+Operator recovery HTTP/Worker composition is now staged: named private
+OperatorService binds fixed owner identity verification, existing enrollment
+approval and registration status/reconcile. Public fetch404 and rollout disabled.
+Strict TypeScript passed; full runtime now11 bundles/14 actual workerd qualifiers
+PASS in /private/tmp/repoctl-operator-full-runtime.log. Synthetic identity/provider
+fixtures do not commission Access, live enrollment or native authentication.
+Controller unit suite remains177 passing after cancellation regression. Native
+init/submit and authenticated controller status remain incomplete.
+
+Access RSA verification is now wired into the private OperatorService.
+OPERATOR_IDENTITY response binding was removed; reviewed issuer/audience/subject/
+lifetime config plus OPERATOR_SESSIONS current proof is mandatory. Real workerd
+qualifier signs RSA tokens and denies foreign subject/audience, expired assertion
+and revoked session before approval/registration. Full11 bundles/14 qualifiers
+PASS; strictTS PASS. Real Access subject mapping/current-session provider and
+native client authentication remain uncommissioned. No rollout/deployment.
+
+Native app status/reconcile now uses the bounded OperatorClient plus AccessSession cached-token-only helper. Swift build and synthetic helper failure/overflow/hang checks pass. No cloudflared installation/login/provider qualification occurred. Unpublished source; signing blocker retained without another user prompt.
+
+Operator ingress relay added disabled by default: exact routes, bounded input/output/deadline, fixed header forwarding and sanitized response. Full current validation:183 tests, strict TypeScript,12 bundles/14 workerd qualifiers; actual ingress-to-private OperatorService with synthetic JWKS/session providers. No deployment or live grant claim. Native init/submit remain actionable missing source.
+
+Deployment planner now includes registration, operator and ingress:14 disabled configurations. Targeted topology regression and actual planner CLI pass; every binding targets an included exported entrypoint. OPERATOR_SESSIONS, Access mapping and registration origin/owner remain unresolved. No activation/deployment or new signing attempt. Native init/submit still required.
+
+Explicit integrationGeneration.reconcile requires retained journal provenance and cannot reserve/create/upload.15 targeted tests and185 full controller tests pass; strict TypeScript passes. Source staged/unpublished. Native init/submit still required; publication does not imply validation or promotion authorization.
+
+Composed candidateSubmission job now prepares/retains/signs/publishes with exclusive canonical job and non-creating recovery; public state published-awaiting-validation. Actual Git-chain lost-response fixture uses one signature/upload and verifies receiving signature; retention/provider proof synthetic.189 controller tests and strict TypeScript pass. New source staged/unpublished. Native init/submit dispatch and authenticated job admission remain missing.
+
+Submission cancellation propagates through generation HTTP/proof/upload; late proofs cannot start publication. Journal creating cancellation retains uncertainty without upload.17 targeted/191 full tests and strict TypeScript pass; actual-Git composed job passes with propagated signal. Staged/unpublished; native init/submit still missing.
+
+Owner-bound operatorSubmission admission added: independent fixed job grant, exact intent/action, separate queue/status/reconcile and sanitized state.2 targeted tests,193 full controller tests and strict TypeScript pass; providers synthetic. HTTP/native dispatch/durable queue remain required. Personal key absent in USB survey and agent; no signing retry. Source staged/unpublished.
+
+submissionJournal now retains fixed owner/repository intent with atomic reservation/claim, forward stage metadata and permanent tombstones.194 controller tests/strict TypeScript pass; actual SQLite workerd submission qualifier passes concurrent claim and restart cases. Runtime runner now includes15 qualifiers but full runner not rerun yet; direct new qualifier and syntax pass. Private queue/runner/native dispatch remain required. Staged/unpublished.
+
+submissionQueue connects retained immutable jobs to one claimed dispatch, suppresses duplicate/restart redispatch and separates recovery. Actual SQLite fixture verifies8-way race and lost-ack persistence with synthetic runner.196 tests, strict TypeScript, complete12 bundles/15 workerd qualifiers pass. Staged/unpublished; actual runner, stage updates, HTTP/native init/submit and live providers remain required.
+
+Retained execution checkpoints connect candidateSubmission to submissionProgress: exact claimed intent before output, prepared/receipt/signed metadata before respective next actions, confirmed/uncertain state without rewind. Actual Git lost-response fixture uses checkpoints; SQLite exact claim and invalid publication checks pass.196 tests/strict TypeScript pass; staged/unpublished. Installed runner/HTTP/native init-submit remain required.
+
+submissionRunner now uses separate durable one-way execution claim, exact retained intent and supplied progress; duplicate deliveries cannot execute again and recovery never submits.197 tests/strict TypeScript, actual-Git runner chain and SQLite execution-claim race pass. Staged/unpublished; commissioned host/background transport, HTTP/native init-submit and live providers still required.

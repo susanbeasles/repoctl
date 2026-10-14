@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {submissionJournal} from '../src/candidate/submission-journal.ts';
+test('submission journal fixes immutable intent, claims once and never rewinds uncertain jobs', async () => {
+ const data = new Map<string, unknown>();
+ const transaction = {get: async <T>(key: string) => structuredClone(data.get(key)) as T | undefined, put: async <T>(key: string, value: T) => {data.set(key, structuredClone(value));}};
+ const storage = {...transaction, transaction: async <T>(callback: (value: typeof transaction) => Promise<T>) => callback(transaction)};
+ const journal = submissionJournal(storage, 9, 7), id = 'a'.repeat(64);
+ const intent = {ownerID: 9, repositoryID: 7, generationID: id, baseSHA: 'b'.repeat(40), sourceSHA: 'c'.repeat(40), message: 'feat: fixture'};
+ assert.equal((await journal.create(intent)).created, true); assert.equal((await journal.create(intent)).created, false);
+ await assert.rejects(journal.create({...intent, message: 'changed'}), /collision/);
+ assert.equal(await journal.transition(id, 'queued', 'preparing'), true); assert.equal(await journal.transition(id, 'queued', 'preparing'), false);
+ assert.equal((await journal.claim(id))?.started, true); assert.equal(await journal.claim(id), null);
+ assert.equal(await journal.transition(id, 'preparing', 'retaining', {treeSHA: 'd'.repeat(40), snapshotDigest: 'e'.repeat(64)}), true);
+ assert.equal(await journal.transition(id, 'retaining', 'signing', {retentionDigest: 'f'.repeat(64)}), true);
+ assert.equal(await journal.transition(id, 'signing', 'publishing', {commitSHA: 'f'.repeat(40)}), true);
+ assert.equal(await journal.transition(id, 'publishing', 'uncertain'), true);
+ await assert.rejects(journal.transition(id, 'uncertain', 'signing'), /transition/);
+ assert.equal(await journal.transition(id, 'uncertain', 'published-awaiting-validation'), true);
+ assert.equal((await journal.create(intent)).created, false);
+ await assert.rejects(journal.transition(id, 'published-awaiting-validation', 'queued'), /transition/);
+});

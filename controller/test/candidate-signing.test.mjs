@@ -1,9 +1,14 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,realpath,writeFile,readFile,rm,access} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync,spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {signedCandidateVerifier} from '../src/candidate/verifier.mjs';
 import {candidateStore} from '../src/candidate/store.ts';
 import {generationUpload} from '../src/candidate/upload.ts';
+import {candidateSubmission} from '../src/candidate/submission.ts';
+import {submissionJournal} from '../src/candidate/submission-journal.ts';
+import {submissionProgress} from '../src/candidate/submission-progress.ts';
+import {submissionRunner} from '../src/candidate/submission-runner.ts';
 import {candidatePreparation} from '../src/candidate/preparation.mjs';import {candidateSigning} from '../src/candidate/signing.mjs';
 async function fixture(){
  const root=await realpath(await mkdtemp(join(tmpdir(),'repoctl-signing-'))),repo=join(root,'repo');
@@ -18,6 +23,57 @@ async function fixture(){
  const config={repositoryID:7,gitExecutable:'/usr/bin/git',sshKeygenExecutable:'/usr/bin/ssh-keygen',publicKey,authorName:'Fixture Candidate',authorEmail:'candidate@example.com',clock:()=>1791370000000,verifySnapshot:async b=>({...b,verified:true,immutable:true}),signer:{async signGit(request){signs++;assert.equal(request.namespace,'git');return execFileSync('/usr/bin/ssh-keygen',['-Y','sign','-n','git','-f',key],{input:request.bytes,env,stdio:['pipe','pipe','ignore'],timeout:10000}).toString();}}};
  return {root,repo,git,prep,prepared,config,signs:()=>signs};
 }
+test('submission job prepares, retains, signs and transfers actual Git objects; lost response only reads back',async()=>{
+ const f=await fixture();try{
+  const directory=join(f.root,'submission'),remote=join(f.root,'submission-remote.git');
+  execFileSync('/usr/bin/git',['init','--bare','-q',remote]);
+  const preparation=await candidatePreparation({sourceGitDirectory:join(f.repo,'.git'),gitExecutable:'/usr/bin/git',repositoryID:7});
+  let retained,uploads=0,reconciles=0;
+  const records=new Map(),storage={async get(key){return structuredClone(records.get(key));},async put(key,value){records.set(key,structuredClone(value));},async transaction(callback){return callback(this);}};
+  const journal=submissionJournal(storage,9,7),generationID='a'.repeat(64),message='feat: composed submission';
+  await journal.create({ownerID:9,repositoryID:7,generationID,baseSHA:f.prepared.baseSHA,sourceSHA:f.prepared.sourceSHA,message});
+  await journal.transition(generationID,'queued','preparing');
+  const verifySnapshot=async binding=>({...binding,verified:JSON.stringify(binding)===JSON.stringify(retained),immutable:true});
+  const signing=candidateSigning({...f.config,verifySnapshot,signer:{signGit:async request=>{assert.equal((await journal.read(generationID)).state,'signing');return f.config.signer.signGit(request);}}});
+  const proof=async()=>signedCandidateVerifier({repositoryID:7,objectDirectory:join(directory,'signed/rebuilt/objects.git'),gitExecutable:'/usr/bin/git',sshKeygenExecutable:'/usr/bin/ssh-keygen',publicKey:f.config.publicKey});
+  const generations={
+   async publish(binding,context){
+    const retainedJob=await journal.read(generationID);assert.equal(retainedJob.state,'publishing');assert.equal(retainedJob.commitSHA,binding.commitSHA);
+    const verifier=await proof(),store=await candidateStore({repositoryID:7,objectDirectory:join(directory,'signed/rebuilt/objects.git'),gitExecutable:'/usr/bin/git',verifyCandidate:(value,context)=>verifier.verify(value,context)});
+    const generation={repositoryID:7,ref:'refs/heads/int/'+binding.generationID,...binding};
+    const upload=generationUpload({repositoryID:7,store,transport:{send:async bytes=>{uploads++;return execFileSync('/usr/bin/git',['-c','core.hooksPath=/dev/null','receive-pack','--stateless-rpc',remote],{input:bytes,stdio:['pipe','pipe','ignore']});}}});
+    await upload.create(generation,context);
+    throw Error('Lost fixture publication reply');
+   },
+   async reconcile(binding){
+    reconciles++;
+    const ref='refs/heads/int/'+binding.generationID;
+    assert.equal(execFileSync('/usr/bin/git',['--git-dir='+remote,'rev-parse',ref]).toString().trim(),binding.commitSHA);
+    await (await proof()).verify({repositoryID:7,baseSHA:binding.baseSHA,commitSHA:binding.commitSHA,treeSHA:binding.treeSHA});
+    execFileSync('/usr/bin/git',['--git-dir='+remote,'-c','gpg.ssh.program=/usr/bin/ssh-keygen','-c','gpg.ssh.allowedSignersFile='+join(directory,'signed/allowed-signers'),'verify-commit',binding.commitSHA],{stdio:['ignore','ignore','ignore']});
+    return {protocol:'repoctl-integration-generation-v1',repositoryID:7,ref,...binding,published:true};
+   }
+  };
+  const job=candidateSubmission({repositoryID:7,directory,preparation,signing,generations,progress:submissionProgress(journal,generationID),snapshots:{retain:async(binding,pack)=>{
+   assert.equal((await journal.read(generationID)).state,'retaining');
+   assert.equal(createHash('sha256').update(await readFile(pack)).digest('hex'),binding.snapshotDigest);
+   retained={...binding};return {...binding,verified:true,immutable:true,receiptDigest:'f'.repeat(64)};
+  }}});
+  const head=f.git('rev-parse','HEAD'),before=f.git('status','--porcelain');
+  const submitted={repositoryID:7,baseSHA:f.prepared.baseSHA,sourceSHA:f.prepared.sourceSHA,generationID};
+  await assert.rejects(job.submit({...submitted,sourceSHA:'d'.repeat(40)},message),/claim differs/);assert.equal(f.signs(),0);
+  const runner=submissionRunner({ownerID:9,repositoryID:7,journal,jobs:{open:async()=>job}}),reference={ownerID:9,repositoryID:7,generationID};
+  await assert.rejects(runner.run(reference),/uncertain/);
+  assert.equal((await runner.run(reference)).accepted,false);
+  assert.equal(JSON.parse(await readFile(join(directory,'failed.json'),'utf8')).phase,'publication');
+  assert.equal((await journal.read(generationID)).state,'uncertain');
+  const result=await runner.reconcile(reference);assert.equal(result.state,'published-awaiting-validation');
+  assert.equal((await journal.read(generationID)).state,'published-awaiting-validation');
+  assert.equal(uploads,1);assert.equal(reconciles,1);assert.equal(f.signs(),1);
+  assert.equal(execFileSync('/usr/bin/git',['--git-dir='+remote,'show',result.commitSHA+':submitted']).toString(),'feature\n');
+  assert.equal(f.git('rev-parse','HEAD'),head);assert.equal(f.git('status','--porcelain'),before);
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});
 test('actual SSH signed candidate is a complete single-parent commit with pinned identity and no source ref mutation',async()=>{
  const f=await fixture();try{
   await writeFile(join(f.repo,'base'),'uncommitted\n');f.git('add','base');const before=f.git('status','--porcelain'),head=f.git('rev-parse','HEAD');

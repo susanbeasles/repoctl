@@ -2,7 +2,8 @@ import Foundation
 import CryptoKit
 
 func appCommand(_ args: [String]) throws {
-    let usage = "repoctl app plan CONFIG\nProduces a reviewed GitHub App manifest and enrollment digest. No registration or remote write occurs. V1 roles: writer, validator, builder, release. Webhook subscriptions and custom permission sets require explicit supported profiles."
+    if args.count > 1 && ["status", "reconcile"].contains(args[1]) {try enrollmentCommand(args); return}
+    let usage = "repoctl app status|reconcile OPERATION --approval REFERENCE --controller HTTPS_ORIGIN --access ABSOLUTE_CLOUDFLARED_PATH\nrepoctl app plan CONFIG\nProduces a reviewed GitHub App manifest and enrollment digest. No registration or remote write occurs. V1 roles: writer, validator, builder, release. Webhook subscriptions and custom permission sets require explicit supported profiles."
     if args == ["app", "--help"] { print(usage); return }
     try require(args.count == 3 && args[1] == "plan", usage)
     let input = try Data(contentsOf: URL(fileURLWithPath: args[2]))

@@ -1,0 +1,1 @@
+{"name":"repoctl-operator","main":"src/operator/entrypoint.ts","compatibility_date":"2026-10-04","workers_dev":false,"vars":{"OPERATOR_ENABLED":"false","OPERATOR_SUBMISSION_ENABLED":"false","OPERATOR_OWNER_ID":"215839550"}}

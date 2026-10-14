@@ -4,15 +4,23 @@ import {reconcileExecution} from '../execution/reconcile.mjs';
 import {journaledCredentials,cleanupCredential} from './custody.mjs';
 const hash=/^[a-f0-9]{64}$/,sha=/^[a-f0-9]{40}$/;
 // Binding identity is infrastructure-controlled. Requests cannot select a URL.
-export async function boundJSON(binding,path,body) {
+export async function boundJSON(binding,path,body,options={}) {
  if(typeof binding?.fetch!=='function')throw Error('Required remote service unavailable');
- const response=await binding.fetch(`https://internal${path}`,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const timeout=AbortSignal.timeout(10000),signal=options.signal?AbortSignal.any([timeout,options.signal]):timeout;
+ signal.throwIfAborted();
+ const response=await binding.fetch(`https://internal${path}`,{method:'POST',redirect:'manual',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ signal.throwIfAborted();
  if(!response.ok)throw Error('Remote service denied request');
  const reader=response.body?.getReader();if(!reader)throw Error('Empty remote response');
+ const cancel=()=>{void reader.cancel().catch(()=>{});};
+ signal.addEventListener('abort',cancel,{once:true});
+ try{
+ signal.throwIfAborted();
  let size=0;const chunks=[];
- while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>65536){await reader.cancel();throw Error('Oversized remote response');}chunks.push(value);}
+ while(true){const {done,value}=await reader.read();signal.throwIfAborted();if(done)break;size+=value.length;if(size>65536){await reader.cancel();throw Error('Oversized remote response');}chunks.push(value);}
  const raw=new Uint8Array(size);let offset=0;for(const c of chunks){raw.set(c,offset);offset+=c.length;}
  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));
+ }finally{signal.removeEventListener('abort',cancel);cancel();reader.releaseLock();}
 }
 export function runtimeReady(env) {
  return env.BROKER_ENABLED==='true'&&typeof env.TOKEN_KEYRING_JSON==='string'&&['BROKER_AUTHORITY','BROKER_VERIFIER','BROKER_SIGNER','BROKER_RECEIPTS'].every(name=>typeof env[name]?.fetch==='function');
