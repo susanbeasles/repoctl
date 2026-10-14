@@ -17,7 +17,7 @@ export async function loadEnvironment(env, runner=execute) {
     // inherited by project code, sent to logs or placed in files/argv.
     if(runner===execute)qualified=await installCLI();
     const prefix=qualified?['--config',qualified.config]:[];
-    const result=await runner(qualified?.binary||'op',[...prefix,'--cache=false','run','--environment',env.OP_ENVIRONMENT_ID,'--no-masking','--',process.execPath,fileURLToPath(new URL('./read-environment.mjs',import.meta.url))],{env:cliEnv,encoding:'utf8',timeout:30000,maxBuffer:32768});
+    const result=await runner(qualified?.binary||'op',[...prefix,'--cache=false','run','--environment',env.OP_ENVIRONMENT_ID,'--no-masking','--','/usr/bin/env','-u','NODE_OPTIONS','-u','NODE_PATH','-u','LD_PRELOAD','-u','LD_LIBRARY_PATH','-u','OP_SERVICE_ACCOUNT_TOKEN','-u','OP_ENVIRONMENT_ID','-u','OP_CONNECT_TOKEN','-u','OP_CONNECT_HOST',process.execPath,fileURLToPath(new URL('./read-environment.mjs',import.meta.url))],{env:cliEnv,encoding:'utf8',timeout:30000,maxBuffer:32768});
     response=JSON.parse(result.stdout);
   } catch { throw Error('1Password CLI Environment loading failed'); } finally { await qualified?.cleanup(); }
   const values = {};
