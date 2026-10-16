@@ -1,0 +1,207 @@
+{
+  "root": "/Users/avespoli/code/guard-rollout-review/repos/repoctl",
+  "origin": "https://github.com/susanbeasles/repoctl.git",
+  "canonical": "susanbeasles/repoctl",
+  "remote": "https://github.com/susanbeasles/repoctl",
+  "base": "e9f636d1d555a9b4163e51b2415cd18a114d11f5",
+  "branch": "codex/agent-protections-20261014",
+  "createdAt": "2026-10-16T21:39:10.730Z",
+  "purpose": "Preserve staged guard rollout changes; files stored under files/ to avoid activating workflows",
+  "files": [
+    {
+      "path": ".agent-guard/README.md",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 2389,
+      "sha256": "a3320f4e0b98b9ed39c83030e999d08aa2f38760041bb5adfc9784819fc84d52"
+    },
+    {
+      "path": ".agent-guard/guard.py",
+      "status": "A",
+      "mode": "100755",
+      "bytes": 15716,
+      "sha256": "cc65b06623a6c1a53b5c9530e3a43e43a6a6bca07e534b6d5df731312819d0e5"
+    },
+    {
+      "path": ".agent-guard/patterns.json",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 15335,
+      "sha256": "3169023b633f4bb5b9412ceb8c646a9aba82e409089721700325b10278e4dfe8"
+    },
+    {
+      "path": ".agent-guard/policy.json",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 1610,
+      "sha256": "a5859a5dbca50b5154465f1ccc8aa14490e93f65315322e5bea5f70d411794a6"
+    },
+    {
+      "path": ".agent-guard/resume.sh",
+      "status": "A",
+      "mode": "100755",
+      "bytes": 331,
+      "sha256": "dc3894ea01825bbd7cff3da2ee4fdcb64473f8b927682fb5fc6a67efe40ecc24"
+    },
+    {
+      "path": ".agent-guard/supervisor.py",
+      "status": "A",
+      "mode": "100755",
+      "bytes": 27025,
+      "sha256": "f85fc73b70cd0ee1c7643543998d9caceff9a3fba5e5ed0599334753baebf15b"
+    },
+    {
+      "path": ".agent-guard/unlock.sh",
+      "status": "A",
+      "mode": "100755",
+      "bytes": 287,
+      "sha256": "a4f9a71db04bf5fc30fb301ea7fc7abde05c8432973437776ebcdd13f6ea6132"
+    },
+    {
+      "path": ".claude/settings.json",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 2449,
+      "sha256": "261836b5534c6bc6c94971148be75d21bc89db94a8e785b0a1795ecb2512da03"
+    },
+    {
+      "path": ".codex/config.toml",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 734,
+      "sha256": "3a0175e31e3937012e878b69ca67c3ec172767e76bedd157121c554a072126d5"
+    },
+    {
+      "path": ".codex/hooks.json",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 1926,
+      "sha256": "ad03ffb29ef20538839367763a5d32a6dd2f03cf3239d7a6f044dfc5447f13f3"
+    },
+    {
+      "path": ".cursor/rules/agent-guard.mdc",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 87,
+      "sha256": "00b13784b025efd177a0c8b3bed716b240d77f4d71aac7fec2eb29384b3136ab"
+    },
+    {
+      "path": ".github/copilot-instructions.md",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 104,
+      "sha256": "fb5d18c61d8b0eb06cf2499128b8e9425b6e2be079d8517e561d07f161ff1b25"
+    },
+    {
+      "path": ".github/hooks/agent-guard.json",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 1614,
+      "sha256": "0be9785c2a61ce575a6d8ff84c7ad85b770d662bb744ae1ac9dfdd36ca5fd3f6"
+    },
+    {
+      "path": ".github/workflows/agent-guard.yml",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 4080,
+      "sha256": "f3ee5bf0bf93753f76d48b28cbc35ed1c68f55e1f733f819213b6cd97e8d3a51"
+    },
+    {
+      "path": ".gitignore",
+      "status": "M",
+      "mode": "100644",
+      "bytes": 348,
+      "sha256": "b7ad79a29a0c2d7a1d58076b7bed5915cb86dcb0376b4a5d442dca6af7955368"
+    },
+    {
+      "path": ".guard/.gitignore",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 6,
+      "sha256": "96731671afe640d782dff36b82a3ad8d1ce0ebe4a7b174f6506f251395941e2f"
+    },
+    {
+      "path": ".guard/VERSION",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 6,
+      "sha256": "c28fcca53637bc88e124af1725df13cb98c69dedefd62fb3cdbe1cdb6b760624"
+    },
+    {
+      "path": ".guard/checks/on-edit",
+      "status": "A",
+      "mode": "100755",
+      "bytes": 1687,
+      "sha256": "3c73e69ec618826112bac7411540dfb9c351c5ac267cf102b40b3da033b22da4"
+    },
+    {
+      "path": ".guard/checks/on-stop",
+      "status": "A",
+      "mode": "100755",
+      "bytes": 1349,
+      "sha256": "ae8e93b9d6ec43a795e1f8cfd0dd7e260f6033001d501edacaa3fe4cd2ad4e1b"
+    },
+    {
+      "path": ".guard/hooks/post-edit-check.py",
+      "status": "A",
+      "mode": "100755",
+      "bytes": 1545,
+      "sha256": "94c77689fffe331993bb651eaf0f36bf05a340e62b8c617662bbb5095453a9a9"
+    },
+    {
+      "path": ".guard/hooks/session-start.py",
+      "status": "A",
+      "mode": "100755",
+      "bytes": 715,
+      "sha256": "1924501da50ef42bf1253ee593c9131d3757422c7743b0a2d653fc088368b513"
+    },
+    {
+      "path": ".guard/hooks/stop-gate.py",
+      "status": "A",
+      "mode": "100755",
+      "bytes": 1000,
+      "sha256": "9b6c28edfcdc73920d142048a7d9b8eea57c641c14803f8486df35c89fa16530"
+    },
+    {
+      "path": ".guard/tests/guard.ts",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 3981,
+      "sha256": "80fff23d10216ac94615baeaed08c1c90217831bc8e8d476ec5dcb10e6ae4aa3"
+    },
+    {
+      "path": ".pre-commit-config.yaml",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 449,
+      "sha256": "c81409bc58dbe529a6afa10a9f87756ec8d4bc0af26e7addee8ba845899fced3"
+    },
+    {
+      "path": "AGENTS.md",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 2858,
+      "sha256": "8efd58d7be88ee3345a2e54994d450fd9fbc13e915824230e642cb289bf4eba1"
+    },
+    {
+      "path": "CLAUDE.md",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 104,
+      "sha256": "fb5d18c61d8b0eb06cf2499128b8e9425b6e2be079d8517e561d07f161ff1b25"
+    },
+    {
+      "path": "CODEOWNERS",
+      "status": "A",
+      "mode": "100644",
+      "bytes": 337,
+      "sha256": "fc490ed7e5becfda255c59a57b404cbe49056c1438f3f6345b3615b1ab464cb8"
+    }
+  ],
+  "deleted": [],
+  "patch": {
+    "path": "staged.patch",
+    "bytes": 120011,
+    "sha256": "e3f1e9d2a834b6dc58840fe693deca159b466146dc595af896fc6be066ea2d67"
+  }
+}

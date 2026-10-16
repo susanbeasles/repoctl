@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Completion gate. Project-specific; seeded once, then owned by the repo. Under ~5 min. Offline.
+set -uo pipefail
+have() { command -v "$1" >/dev/null 2>&1; }; rc=0
+skip() { echo "SKIP $1 (not installed)"; }
+git rev-parse --git-dir >/dev/null 2>&1 && git diff --name-only --diff-filter=U | grep -q . && { echo "unresolved merge conflicts"; rc=1; }
+if [[ -f package.json ]]; then
+  if have npm; then
+    for s in lint typecheck test; do python3 -c "import json,sys; sys.exit(0 if '$s' in json.load(open('package.json')).get('scripts',{}) else 1)" && { npm run -s "$s" --offline || rc=1; }; done
+  else skip npm; fi
+fi
+[[ -f pyproject.toml ]] && { have pytest && { pytest -q -x 2>&1 | tail -n 40; [[ ${PIPESTATUS[0]} -eq 0 ]] || rc=1; } || skip pytest; }
+[[ -f Package.swift ]] && { have swift && { swift test 2>&1 | tail -n 40; [[ ${PIPESTATUS[0]} -eq 0 ]] || rc=1; } || skip swift; }
+ls ./*.tf >/dev/null 2>&1 && { have terraform && { terraform fmt -check -recursive || rc=1; terraform validate -no-color || rc=1; } || skip terraform; }
+[[ -f Makefile ]] && grep -qE '^check:' Makefile && { have make && { make -s check || rc=1; } || skip make; }
+if have gitleaks; then gitleaks detect --no-git --source . --no-banner --redact >/dev/null 2>&1 || { echo "gitleaks found a possible secret"; rc=1; }; else skip gitleaks; fi
+exit $rc
